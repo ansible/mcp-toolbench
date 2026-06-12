@@ -1,0 +1,114 @@
+[
+  {
+    "id": "AAP01-easy",
+    "query": "List my available job templates.",
+    "expected_tool": "job_templates_list",
+    "acceptable_tools": [],
+    "category": "easy",
+    "source": "generated"
+  },
+  {
+    "id": "AAP01-hard",
+    "query": "I'm looking for all the predefined work configurations I can use to set up tasks.",
+    "expected_tool": "job_templates_list",
+    "acceptable_tools": [],
+    "category": "hard",
+    "source": "generated"
+  },
+  {
+    "id": "AAP02-easy",
+    "query": "Show me all available workflow job templates.",
+    "expected_tool": "workflow_job_templates_list",
+    "acceptable_tools": [],
+    "category": "easy",
+    "source": "generated"
+  },
+  {
+    "id": "AAP02-hard",
+    "query": "I'm looking for examples of automated process configurations that I can use to build my own pipelines.",
+    "expected_tool": "workflow_job_templates_list",
+    "acceptable_tools": [],
+    "category": "hard",
+    "source": "generated"
+  },
+  {
+    "id": "AAP03-easy",
+    "query": "List all available jobs.",
+    "expected_tool": "jobs_list",
+    "acceptable_tools": [],
+    "category": "easy",
+    "source": "generated"
+  },
+  {
+    "id": "AAP04-easy",
+    "query": "What items are available in our inventory?",
+    "expected_tool": "inventories_list",
+    "acceptable_tools": [],
+    "category": "easy",
+    "source": "generated"
+  },
+  {
+    "id": "AAP05-easy",
+    "query": "Give me a list of hosts.",
+    "expected_tool": "hosts_list",
+    "acceptable_tools": [],
+    "category": "easy",
+    "source": "generated"
+  },
+  {
+    "id": "AAP05-hard",
+    "query": "What machines are currently registered in our network inventory?",
+    "expected_tool": "hosts_list",
+    "acceptable_tools": [],
+    "category": "hard",
+    "source": "generated"
+  },
+  {
+    "id": "AAP06-easy",
+    "query": "What credentials do I have access to?",
+    "expected_tool": "credentials_list",
+    "acceptable_tools": [],
+    "category": "easy",
+    "source": "generated"
+  },
+  {
+    "id": "AAP06-hard",
+    "query": "Show me the list of my saved logins and API keys.",
+    "expected_tool": "credentials_list",
+    "acceptable_tools": [],
+    "category": "hard",
+    "source": "generated"
+  },
+  {
+    "id": "AAP07-easy",
+    "query": "List all users in my team.",
+    "expected_tool": "users_list",
+    "acceptable_tools": [],
+    "category": "easy",
+    "source": "generated"
+  },
+  {
+    "id": "AAP07-hard",
+    "query": "Who are everyone else that has access to this account?",
+    "expected_tool": "users_list",
+    "acceptable_tools": [],
+    "category": "hard",
+    "source": "generated"
+  },
+  {
+    "id": "AAP08-easy",
+    "query": "List all my activation instances along with their start and end times.",
+    "expected_tool": "activation_instances_list",
+    "acceptable_tools": [],
+    "category": "easy",
+    "source": "generated"
+  },
+  {
+    "id": "AAP08-hard",
+    "query": "Give me details about when I started running these processes, showing both the queue status and completion dates.",
+    "expected_tool": "activation_instances_list",
+    "acceptable_tools": [],
+    "category": "hard",
+    "source": "generated"
+  }
+]

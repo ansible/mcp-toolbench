@@ -1,0 +1,2 @@
+fastmcp>=3.4.2
+ollama>=0.6.2

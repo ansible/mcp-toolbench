@@ -1,0 +1,7 @@
+{
+  "name": "dummy",
+  "transport": "in_process",
+  "module": "server.tools_server",
+  "attr": "mcp",
+  "test_cases_file": "configs/dummy_test_cases.json"
+}

@@ -1,0 +1,107 @@
+[
+  {
+    "id": "TC01",
+    "query": "What's the temperature in Paris right now?",
+    "expected_tool": "get_current_temperature",
+    "acceptable_tools": [],
+    "category": "exact_match"
+  },
+  {
+    "id": "TC02",
+    "query": "Will it rain in Seattle this week?",
+    "expected_tool": "get_weather_forecast",
+    "acceptable_tools": [],
+    "category": "exact_match"
+  },
+  {
+    "id": "TC03",
+    "query": "How hot is it outside in Miami?",
+    "expected_tool": "get_current_temperature",
+    "acceptable_tools": [],
+    "category": "no_keyword_overlap"
+  },
+  {
+    "id": "TC04",
+    "query": "What's the weather going to be like in Boston over the next few days?",
+    "expected_tool": "get_weather_forecast",
+    "acceptable_tools": [],
+    "category": "exact_match"
+  },
+  {
+    "id": "TC05",
+    "query": "Schedule a meeting called 'Project Review' for tomorrow at 2pm",
+    "expected_tool": "create_event",
+    "acceptable_tools": [],
+    "category": "exact_match"
+  },
+  {
+    "id": "TC06",
+    "query": "What do I have on my calendar for Friday?",
+    "expected_tool": "list_events",
+    "acceptable_tools": [],
+    "category": "no_keyword_overlap"
+  },
+  {
+    "id": "TC07",
+    "query": "Add a dentist appointment on June 15th at 9am",
+    "expected_tool": "create_event",
+    "acceptable_tools": [],
+    "category": "no_keyword_overlap"
+  },
+  {
+    "id": "TC08",
+    "query": "Show me my schedule for next Monday",
+    "expected_tool": "list_events",
+    "acceptable_tools": [],
+    "category": "no_keyword_overlap"
+  },
+  {
+    "id": "TC09",
+    "query": "Open the file called notes.txt and show me what's inside",
+    "expected_tool": "read_file",
+    "acceptable_tools": [],
+    "category": "exact_match"
+  },
+  {
+    "id": "TC10",
+    "query": "Find all files related to the budget report",
+    "expected_tool": "search_files",
+    "acceptable_tools": [],
+    "category": "exact_match"
+  },
+  {
+    "id": "TC11",
+    "query": "What's written in config.yaml?",
+    "expected_tool": "read_file",
+    "acceptable_tools": [],
+    "category": "no_keyword_overlap"
+  },
+  {
+    "id": "TC12",
+    "query": "Look for any documents mentioning 'invoice'",
+    "expected_tool": "search_files",
+    "acceptable_tools": [],
+    "category": "no_keyword_overlap"
+  },
+  {
+    "id": "TC13",
+    "query": "Is it sunny in London today?",
+    "expected_tool": "get_weather_forecast",
+    "acceptable_tools": ["get_current_temperature"],
+    "category": "ambiguous"
+  },
+  {
+    "id": "TC14",
+    "query": "What's on my agenda today?",
+    "expected_tool": "list_events",
+    "acceptable_tools": [],
+    "category": "no_keyword_overlap"
+  },
+  {
+    "id": "TC15",
+    "query": "Set a reminder to call mom tomorrow at noon",
+    "expected_tool": "create_event",
+    "acceptable_tools": [],
+    "category": "no_keyword_overlap"
+  }
+]

@@ -1,0 +1,203 @@
+{
+  "model": "llama3.2:3b",
+  "repeats": 1,
+  "timestamp": "2026-06-10T00:11:25.831983+00:00",
+  "results": [
+    {
+      "id": "TC01",
+      "query": "What's the temperature in Paris right now?",
+      "expected_tool": "get_current_temperature",
+      "category": "exact_match",
+      "runs": [
+        [
+          "get_current_temperature"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC02",
+      "query": "Will it rain in Seattle this week?",
+      "expected_tool": "get_weather_forecast",
+      "category": "exact_match",
+      "runs": [
+        [
+          "get_weather_forecast"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC03",
+      "query": "How hot is it outside in Miami?",
+      "expected_tool": "get_current_temperature",
+      "category": "no_keyword_overlap",
+      "runs": [
+        [
+          "get_current_temperature"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC04",
+      "query": "What's the weather going to be like in Boston over the next few days?",
+      "expected_tool": "get_weather_forecast",
+      "category": "exact_match",
+      "runs": [
+        [
+          "get_weather_forecast"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC05",
+      "query": "Schedule a meeting called 'Project Review' for tomorrow at 2pm",
+      "expected_tool": "create_event",
+      "category": "exact_match",
+      "runs": [
+        [
+          "create_event"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC06",
+      "query": "What do I have on my calendar for Friday?",
+      "expected_tool": "list_events",
+      "category": "no_keyword_overlap",
+      "runs": [
+        [
+          "list_events"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC07",
+      "query": "Add a dentist appointment on June 15th at 9am",
+      "expected_tool": "create_event",
+      "category": "no_keyword_overlap",
+      "runs": [
+        [
+          "create_event"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC08",
+      "query": "Show me my schedule for next Monday",
+      "expected_tool": "list_events",
+      "category": "no_keyword_overlap",
+      "runs": [
+        [
+          "list_events"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC09",
+      "query": "Open the file called notes.txt and show me what's inside",
+      "expected_tool": "read_file",
+      "category": "exact_match",
+      "runs": [
+        [
+          "read_file"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC10",
+      "query": "Find all files related to the budget report",
+      "expected_tool": "search_files",
+      "category": "exact_match",
+      "runs": [
+        [
+          "search_files"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC11",
+      "query": "What's written in config.yaml?",
+      "expected_tool": "read_file",
+      "category": "no_keyword_overlap",
+      "runs": [
+        [
+          "read_file"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC12",
+      "query": "Look for any documents mentioning 'invoice'",
+      "expected_tool": "search_files",
+      "category": "no_keyword_overlap",
+      "runs": [
+        [
+          "search_files"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC13",
+      "query": "Is it sunny in London today?",
+      "expected_tool": "get_weather_forecast",
+      "category": "ambiguous",
+      "runs": [
+        [
+          "get_weather_forecast"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC14",
+      "query": "What's on my agenda today?",
+      "expected_tool": "list_events",
+      "category": "no_keyword_overlap",
+      "runs": [
+        [
+          "list_events"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "TC15",
+      "query": "Set a reminder to call mom tomorrow at noon",
+      "expected_tool": "create_event",
+      "category": "no_keyword_overlap",
+      "runs": [
+        [
+          "create_event"
+        ]
+      ],
+      "pass_count": 1,
+      "pass_rate": 1.0
+    }
+  ],
+  "accuracy": 1.0
+}

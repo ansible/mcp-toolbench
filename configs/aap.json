@@ -1,0 +1,9 @@
+{
+  "name": "aap",
+  "transport": "http",
+  "url": "http://localhost:3000/mcp",
+  "headers": {
+    "Authorization": "Bearer dummy-token"
+  },
+  "test_cases_file": "configs/aap_test_cases.json"
+}
