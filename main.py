@@ -4,7 +4,7 @@ import sys
 
 from harness.config import list_servers, load_server_config
 from harness.lifecycle import setup_server, teardown_server
-from harness.runner import print_table, run, save_results
+from harness.runner import print_table, render_markdown, run, save_results
 
 
 def cmd_run(args):
@@ -42,10 +42,13 @@ def cmd_run(args):
 
             if args.output == "json":
                 print(json.dumps(run_data, indent=2))
+            elif args.output == "md":
+                print(render_markdown(run_data))
             else:
                 print_table(run_data)
 
-            path = save_results(run_data, config["name"])
+            save_fmt = args.save_format or ("md" if args.output == "md" else "json")
+            path = save_results(run_data, config["name"], fmt=save_fmt)
             print(f"\nSaved results to {path}")
 
             if args.ci and run_data["accuracy"] < threshold:
@@ -109,9 +112,46 @@ def cmd_list(args):
         print(f"{name:<20}{transport:<15}{models_str:<40}{test_count:<8}")
 
 
+def _resolve_coverage(config: dict, cli_count: int | None, total_tools: int) -> int:
+    """Determine how many tools to generate tests for.
+
+    Priority: --count CLI flag > coverage YAML field > all tools.
+    """
+    if cli_count is not None:
+        return min(cli_count, total_tools)
+
+    coverage = config.get("coverage")
+    if coverage is None:
+        return total_tools
+    if isinstance(coverage, str) and coverage.lower() == "all":
+        return total_tools
+    if isinstance(coverage, int):
+        return min(coverage, total_tools)
+
+    return total_tools
+
+
+GEN_PROMPT = """You are creating test cases for a tool-calling accuracy benchmark.
+
+Tool name: {name}
+Tool description: {description}
+
+Generate two example user queries (natural, conversational, as if typed by a
+real user) that should both result in this exact tool being called - and no
+other tool.
+
+1. "easy": a direct query closely related to the tool's name/description.
+2. "hard": a query that does NOT share obvious keywords with the tool's name
+   or description, but a person asking it would still expect this tool to be
+   used (e.g. a synonym, indirect phrasing, or a different framing of the
+   same need).
+
+Respond with JSON only: {{"easy": "...", "hard": "..."}}"""
+
+
 def cmd_generate(args):
     from harness.mcp_client import get_tools
-    from harness.providers import call_model
+    from harness.providers import call_model, detect_default_model
 
     import asyncio
 
@@ -122,28 +162,39 @@ def cmd_generate(args):
         tools = asyncio.run(get_tools(config["tool_source"]))
         model = args.model or (config["models"][0] if config["models"] else None)
         if not model:
-            print("Error: no model specified and none configured", file=sys.stderr)
-            sys.exit(1)
+            model = detect_default_model()
+            print(f"No model specified — auto-detected: {model}")
 
-        count = args.count or len(tools)
+        count = _resolve_coverage(config, args.count, len(tools))
 
-        print(f"Generating test cases for {min(count, len(tools))} tools using {model}...\n")
+        print(f"Generating test cases for {count}/{len(tools)} tools using {model}...\n")
         print("test_cases:")
 
-        for tool in tools[:count]:
-            prompt = (
-                f"Generate a natural language query that a user would type to trigger "
-                f"the tool '{tool['name']}' (description: {tool['description']}). "
-                f"Return ONLY the query text, nothing else."
-            )
+        for i, tool in enumerate(tools[:count], start=1):
+            prompt = GEN_PROMPT.format(name=tool["name"], description=tool["description"])
             result = call_model(model, prompt, [])
-            query = result[0].name if result else f"Use {tool['name']}"
 
-            print(f"  - id: GEN-{tool['name']}")
-            print(f"    query: \"{prompt}\"")
-            print(f"    expected_tool: {tool['name']}")
-            print(f"    category: generated")
-            print()
+            response_text = ""
+            if result:
+                response_text = result[0].input_parameters.get("easy", "") if result[0].input_parameters else ""
+
+            try:
+                import json as _json
+                parsed = _json.loads(response_text) if response_text.strip().startswith("{") else None
+            except (ValueError, TypeError):
+                parsed = None
+
+            if not parsed:
+                parsed = {"easy": f"Use {tool['name']}", "hard": f"Use {tool['name']} indirectly"}
+
+            for variant in ("easy", "hard"):
+                query = parsed.get(variant, f"Use {tool['name']}")
+                print(f"  - id: GEN{i:02d}-{variant}")
+                print(f"    query: \"{query}\"")
+                print(f"    expected_tool: {tool['name']}")
+                print(f"    category: {variant}")
+                print(f"    source: generated")
+                print()
     finally:
         teardown_server(process, config)
 
@@ -160,7 +211,8 @@ def main():
     shared.add_argument("--threshold", type=float, default=None, help="Pass/fail threshold 0.0-1.0")
     shared.add_argument("--judge-model", default=None, help="Model for LLM-as-judge metrics")
     shared.add_argument("--ci", action="store_true", help="Exit with code 1 if below threshold")
-    shared.add_argument("--output", choices=["table", "json"], default="table", help="Output format")
+    shared.add_argument("--output", choices=["table", "json", "md"], default="table", help="Output format")
+    shared.add_argument("--save-format", choices=["json", "md"], default=None, help="Saved file format (defaults to match --output)")
 
     # run <server>
     run_parser = subparsers.add_parser("run", parents=[shared], help="Run evals for a server")
@@ -176,7 +228,7 @@ def main():
     gen_parser = subparsers.add_parser("generate", help="Generate test cases from tool discovery")
     gen_parser.add_argument("server", help="Server name")
     gen_parser.add_argument("--model", default=None, help="Model for generation")
-    gen_parser.add_argument("--count", type=int, default=None, help="Max tools to generate for")
+    gen_parser.add_argument("--count", type=int, default=None, help="Override coverage — max tools to generate for")
 
     args = parser.parse_args()
 

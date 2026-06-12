@@ -1,191 +1,147 @@
 # mcp-toolbench
 
-A local tool-calling accuracy harness. It connects to **any MCP server**,
-sends a set of natural-language test queries to an Ollama model with that
-server's tools available, and scores how often the model picks the
-*expected* tool. RAG retrieval and tool execution are out of scope - this
-only measures **tool selection** accuracy.
+Org-wide MCP tool-calling evaluation harness. Register any MCP server via a
+YAML config, and the harness will connect to it, discover its tools, run
+queries through various LLMs, and score tool-calling accuracy using
+[DeepEval](https://github.com/confident-ai/deepeval) metrics.
 
 ## Stack
 
-- **Ollama** - local model inference (must already be installed and running)
-- **FastMCP** - MCP client used to connect to servers and list their tools;
-  also hosts a small dummy MCP server used as a test fixture
-- **harness** - config-driven runner: connects to a server, normalizes its
-  tool list, runs test cases against a model, and scores the results
+- **DeepEval** — scoring engine (ToolCorrectnessMetric, ArgumentCorrectnessMetric, MCPUseMetric)
+- **FastMCP** — MCP client for tool discovery and server connectivity
+- **Multi-model providers** — Anthropic (Vertex AI + direct API), OpenAI, Ollama
+- **YAML server registry** — each MCP server gets a config file with connection details, test cases, and eval settings
 
 ## Project structure
 
 ```
 mcp-toolbench/
-├── server/
-│   └── tools_server.py        # dummy in-process FastMCP server (6 tools)
+├── servers/
+│   ├── aap.yaml                 # AAP MCP server config + test cases
+│   └── dummy.yaml               # dummy in-process server for local testing
 ├── harness/
-│   ├── config.py               # loads configs/<name>.json -> tool source + test cases
-│   ├── mcp_client.py            # connects to an MCP server, returns normalized tools
-│   ├── runner.py                 # runs test cases, scores, saves results
-│   └── generate_test_cases.py    # LLM-assisted test case generation (needs review)
-├── configs/
-│   ├── dummy.json                 # config for the in-process dummy server
-│   ├── dummy_test_cases.json       # 15 hand-written test cases for the dummy server
-│   ├── aap.json                     # config for a real MCP server (AAP, over HTTP)
-│   └── aap_test_cases.json           # LLM-generated + reviewed test cases for AAP
-├── results/                          # JSON results per run (created on first run)
-└── main.py                            # CLI entrypoint
+│   ├── config.py                # YAML config loader with ${ENV_VAR} interpolation
+│   ├── providers.py             # multi-model provider abstraction + auto-detection
+│   ├── runner.py                # DeepEval scoring engine + result formatting
+│   ├── mcp_client.py            # MCP tool discovery
+│   ├── lifecycle.py             # server clone/setup/start/stop lifecycle
+│   └── generate_test_cases.py   # standalone test case generator
+├── server/
+│   └── tools_server.py          # dummy in-process FastMCP server (6 tools)
+├── results/                     # JSON/Markdown results per run
+├── main.py                      # CLI entrypoint
+└── requirements.txt
 ```
 
 ## Setup
 
-1. Make sure Ollama is installed and running, and pull the model(s) you want
-   to test, e.g.:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-   ```bash
-   ollama pull qwen3.5:4b
-   ollama pull llama3.2:3b
-   ```
+The harness auto-detects available providers based on environment variables:
 
-2. Create a virtual environment and install dependencies:
+| Provider | Required env vars |
+|----------|-------------------|
+| Anthropic (Vertex AI) | `ANTHROPIC_VERTEX_PROJECT_ID` + `CLOUD_ML_REGION` |
+| Anthropic (direct) | `ANTHROPIC_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Ollama | Ollama running locally (no env vars needed) |
 
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
+If no cloud credentials are found, it defaults to local Ollama.
 
 ## Usage
 
 ```bash
-python main.py --server dummy --model qwen3.5:4b
-python main.py --server dummy --model llama3.2:3b --repeats 5
-python main.py --server aap --model llama3.2:3b
+# List registered servers and detected providers
+python main.py list
+
+# Run evals for a server (uses models from YAML config)
+python main.py run aap
+
+# Override model
+python main.py run aap --model anthropic:claude-sonnet-4-6 --repeats 1
+
+# Run all registered servers
+python main.py run-all
+
+# CI mode — exits non-zero if below threshold
+python main.py run aap --ci --threshold 0.8
+
+# Output as markdown
+python main.py run aap --output md
+
+# Save results as markdown file
+python main.py run aap --save-format md
+
+# Generate test cases from discovered tools
+python main.py generate aap --model anthropic:claude-sonnet-4-6
 ```
 
-- `--server` - name of a config file in `configs/<name>.json` (e.g. `dummy`,
-  `aap`)
-- `--model` - any Ollama model name you've pulled
-- `--repeats` - how many times to run each test case (default 3). Model
-  output is non-deterministic, so a single run can be misleading - repeats
-  give a per-test pass *rate* instead of a binary pass/fail.
+## Server config format (`servers/<name>.yaml`)
 
-Each run prints a results table (pass rate per test case + overall accuracy)
-and saves the full results, including every individual run's tool choice and
-the total tool count exposed by the server, to
-`results/<server>_<model>_<timestamp>.json` for later comparison.
+```yaml
+name: my-server
 
-## Connecting to an MCP server
+# Optional: repo cloning + server lifecycle
+repo: https://github.com/org/my-mcp-server
+setup: npm install
+start: npm start
 
-Each server is described by a `configs/<name>.json` file with a transport
-type and a path to its test cases file. Three transport types are supported
-(see `harness/config.py`):
+# Connection
+transport: http                          # http | in_process | stdio
+endpoint: http://localhost:3000/mcp
+headers:
+  Authorization: "Bearer ${MY_TOKEN}"    # env var interpolation
 
-- **`in_process`** - a FastMCP server object importable in this codebase.
-  Used for the dummy fixture:
+# Eval settings
+models:
+  - anthropic:claude-sonnet-4-6
+  - openai:gpt-4o
+coverage: all          # all | <number> — tools to cover when generating tests
+threshold: 0.7
+repeats: 3
+metrics:
+  - tool_correctness
 
-  ```json
-  {
-    "name": "dummy",
-    "transport": "in_process",
-    "module": "server.tools_server",
-    "attr": "mcp",
-    "test_cases_file": "configs/dummy_test_cases.json"
-  }
-  ```
-
-- **`http`** - a remote MCP server reachable over streamable HTTP, with
-  optional headers (e.g. an `Authorization` bearer token). Used for the AAP
-  MCP server:
-
-  ```json
-  {
-    "name": "aap",
-    "transport": "http",
-    "url": "http://localhost:3000/mcp",
-    "headers": { "Authorization": "Bearer dummy-token" },
-    "test_cases_file": "configs/aap_test_cases.json"
-  }
-  ```
-
-  The AAP server validates its bearer token against a real AAP instance
-  (`BASE_URL`). For local testing, point `BASE_URL` at the bundled mock AAP
-  server (`npm run simulate:mock-aap-server`), which accepts any token - the
-  exact token value doesn't matter, only that *something* is present and the
-  validation request succeeds.
-
-- **`stdio`** - a local MCP server started via a command + args. Implemented
-  in `harness/config.py` but not yet exercised against a real server.
-
-  ```json
-  {
-    "name": "some-server",
-    "transport": "stdio",
-    "command": "node",
-    "args": ["path/to/server.js"],
-    "test_cases_file": "configs/some-server_test_cases.json"
-  }
-  ```
-
-To add a new server: write its config JSON, write or generate a test cases
-file for it, and run `python main.py --server <name> --model <model>`.
-
-## Test case format
-
-Each test cases file is a JSON array of:
-
-```json
-{
-  "id": "TC01",
-  "query": "What's the temperature in Paris right now?",
-  "expected_tool": "get_current_temperature",
-  "acceptable_tools": [],
-  "category": "exact_match"
-}
+# Test cases
+test_cases:
+  - id: TC01-easy
+    query: "List my available job templates."
+    expected_tool: job_templates_list
+    category: easy
 ```
 
-- `acceptable_tools` - additional tool names that also count as a pass (for
-  deliberately ambiguous cases)
-- `category` - free-form label used for grouping in the results table.
-  Hand-written cases use `exact_match` / `no_keyword_overlap` / `ambiguous`;
-  generated cases use `easy` / `hard`
-- `source` - optional, set to `"generated"` by `generate_test_cases.py` to
-  flag cases that need manual review; absent on hand-written cases
+### Coverage
 
-## Generating test cases with an LLM
+The `coverage` field controls how many tools `python main.py generate` creates test cases for:
 
-`harness/generate_test_cases.py` asks a model to write an "easy" (keyword-
-overlapping) and a "hard" (no-keyword-overlap, paraphrased) query for each
-tool in `TARGET_TOOLS`, tags them `source: "generated"`, and writes them to
-a test cases file.
+- `coverage: all` — every discovered tool
+- `coverage: 20` — 20 tools
+- omitted — defaults to all
+- `--count` CLI flag overrides the YAML value
 
-**Generated cases are a starting point, not ground truth** - review them
-before trusting them. In practice, generated "hard" queries sometimes
-interpret a tool's generic-English words (e.g. "jobs", "inventory") in their
-everyday sense rather than the server's domain-specific sense, producing
-queries that wouldn't map to the expected tool in real use. A couple of such
-cases were removed from `configs/aap_test_cases.json` after review.
+Each tool gets an easy (keyword-matching) and hard (paraphrased) query.
 
-## How scoring works
+### Transport types
 
-For each test case, the model is given the full list of tools from the
-target MCP server and a natural-language query, run `--repeats` times. A run
-"passes" if the model's chosen tool(s) include the expected tool (or one of
-the listed acceptable alternatives). The per-case score is `pass_count /
-repeats`, and the overall accuracy is total passes over total runs.
+- **`http`** — remote MCP server over streamable HTTP, with optional auth headers
+- **`in_process`** — a FastMCP server object importable in this codebase
+- **`stdio`** — a local MCP server started via command + args
 
-## Example results
+## Scoring
 
-- **dummy** (6 tools, 15 hand-written cases, `llama3.2:3b`): ~93% accuracy
-- **aap** (62 tools, 14 generated cases, `llama3.2:3b`): ~14% accuracy
+For each test case, the model receives the full tool list from the MCP server
+and a natural-language query. A run passes if the model's chosen tool(s)
+include the expected tool. DeepEval metrics provide additional scoring
+(tool correctness, argument correctness, MCP use).
 
-The gap is the headline finding so far: with a large tool list, the model
-frequently calls *no tool at all*, or picks a confusable sibling tool (e.g.
-`credentials_retrieve` instead of `credentials_list`) - exactly the kind of
-issue this harness is meant to surface.
+Results are saved to `results/` as JSON or Markdown.
 
-## Status / what's not here yet
+## Adding a new server
 
-- RAG-based tool retrieval (pass only the top-k relevant tools instead of
-  all of them, and measure retrieval recall separately from selection
-  accuracy)
-- Confusable-tool-pair diagnostics based on tool description similarity
-- LLM-generated query paraphrases to expand existing seed cases
-- `stdio` transport is implemented but untested against a real server
+1. Create `servers/<name>.yaml` with connection details and test cases
+2. Run `python main.py generate <name>` to auto-generate test cases from discovered tools
+3. Review generated cases, then run `python main.py run <name>`

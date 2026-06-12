@@ -217,10 +217,73 @@ def print_table(run_data: dict) -> None:
         print(f"Threshold: {run_data.get('threshold', 0.7)}")
 
 
-def save_results(run_data: dict, server_name: str) -> Path:
+def render_markdown(run_data: dict) -> str:
+    repeats = run_data["repeats"]
+    results = run_data["results"]
+    total_passes = sum(r["pass_count"] for r in results)
+    total_runs = len(results) * repeats
+    has_deepeval = any("deepeval_score" in r for r in results)
+
+    lines = [
+        f"# Tool-Calling Eval: {run_data['model']}",
+        "",
+        f"| Metric | Value |",
+        f"|--------|-------|",
+        f"| Model | `{run_data['model']}` |",
+        f"| Tools available | {run_data['tool_count']} |",
+        f"| Test cases | {len(results)} |",
+        f"| Repeats | {repeats} |",
+        f"| Accuracy | {total_passes}/{total_runs} ({run_data['accuracy']:.1%}) |",
+    ]
+
+    if has_deepeval:
+        lines.append(f"| DeepEval pass rate | {run_data.get('deepeval_pass_rate', 0):.1%} |")
+        lines.append(f"| Metrics | {', '.join(run_data.get('metrics_used', []))} |")
+        lines.append(f"| Threshold | {run_data.get('threshold', 0.7)} |")
+
+    lines.append(f"| Timestamp | {run_data['timestamp']} |")
+    lines.append("")
+
+    lines.append("## Results")
+    lines.append("")
+
+    if has_deepeval:
+        lines.append("| ID | Pass | Score | Category | Expected Tool | Query |")
+        lines.append("|----|----- |-------|----------|---------------|-------|")
+        for r in results:
+            pass_str = f"{r['pass_count']}/{repeats}"
+            score = f"{r.get('deepeval_score', 0):.2f}"
+            status = "PASS" if r.get("deepeval_passed") else "FAIL"
+            lines.append(f"| {r['id']} | {pass_str} {status} | {score} | {r['category']} | `{r['expected_tool']}` | {r['query']} |")
+    else:
+        lines.append("| ID | Pass | Category | Expected Tool | Query |")
+        lines.append("|----|------|----------|---------------|-------|")
+        for r in results:
+            pass_str = f"{r['pass_count']}/{repeats}"
+            lines.append(f"| {r['id']} | {pass_str} | {r['category']} | `{r['expected_tool']}` | {r['query']} |")
+
+    failed = [r for r in results if not r.get("deepeval_passed", r["pass_count"] == repeats)]
+    if failed:
+        lines.append("")
+        lines.append("## Failures")
+        lines.append("")
+        for r in failed:
+            lines.append(f"- **{r['id']}**: expected `{r['expected_tool']}`, got `{', '.join(r['runs'][0]) if r['runs'] else 'none'}`")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def save_results(run_data: dict, server_name: str, fmt: str = "json") -> Path:
     RESULTS_DIR.mkdir(exist_ok=True)
     safe_model = run_data["model"].replace(":", "-")
     timestamp = run_data["timestamp"].replace(":", "-")
-    path = RESULTS_DIR / f"{server_name}_{safe_model}_{timestamp}.json"
-    path.write_text(json.dumps(run_data, indent=2))
+    base = f"{server_name}_{safe_model}_{timestamp}"
+
+    if fmt == "md":
+        path = RESULTS_DIR / f"{base}.md"
+        path.write_text(render_markdown(run_data))
+    else:
+        path = RESULTS_DIR / f"{base}.json"
+        path.write_text(json.dumps(run_data, indent=2))
     return path

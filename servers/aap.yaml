@@ -13,6 +13,7 @@ models:
   - anthropic:claude-sonnet-4-6
   - openai:gpt-4o
 
+coverage: all
 threshold: 0.7
 repeats: 3
 metrics:

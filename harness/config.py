@@ -84,6 +84,7 @@ def load_server_config(name: str) -> dict:
         "setup": config.get("setup"),
         "start": config.get("start"),
         "endpoint": config.get("endpoint"),
+        "coverage": config.get("coverage"),
     }
 
 
