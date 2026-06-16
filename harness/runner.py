@@ -32,9 +32,9 @@ def _resolve_judge_model(model_str: str):
     if provider == "anthropic":
         available = detect_available_providers()
         project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
-        region = os.environ.get("CLOUD_ML_REGION")
+        region = os.environ.get("CLOUD_ML_REGION", "us-east5")
 
-        if project_id and region:
+        if project_id:
             from deepeval.models import AnthropicModel
 
             class AnthropicVertexModel(AnthropicModel):

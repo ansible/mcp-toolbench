@@ -26,9 +26,10 @@ def cmd_run(args):
 
     try:
         for model in models:
-            print(f"\n{'='*60}")
-            print(f"Server: {config['name']}  |  Model: {model}")
-            print(f"{'='*60}\n")
+            if args.output != "json":
+                print(f"\n{'='*60}")
+                print(f"Server: {config['name']}  |  Model: {model}")
+                print(f"{'='*60}\n")
 
             run_data = run(
                 config["tool_source"],
@@ -47,9 +48,10 @@ def cmd_run(args):
             else:
                 print_table(run_data)
 
-            save_fmt = args.save_format or ("md" if args.output == "md" else "json")
-            path = save_results(run_data, config["name"], fmt=save_fmt)
-            print(f"\nSaved results to {path}")
+            if args.output != "json":
+                save_fmt = args.save_format or ("md" if args.output == "md" else "json")
+                path = save_results(run_data, config["name"], fmt=save_fmt)
+                print(f"\nSaved results to {path}")
 
             if args.ci and run_data["accuracy"] < threshold:
                 failed = True
@@ -163,8 +165,8 @@ def _generate_queries(model_str: str, tool: dict) -> dict:
         import anthropic
 
         project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
-        region = os.environ.get("CLOUD_ML_REGION")
-        if project_id and region:
+        region = os.environ.get("CLOUD_ML_REGION", "us-east5")
+        if project_id:
             client = anthropic.AnthropicVertex(project_id=project_id, region=region)
         else:
             client = anthropic.Anthropic()

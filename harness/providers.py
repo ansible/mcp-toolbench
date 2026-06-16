@@ -38,7 +38,7 @@ def detect_available_providers() -> dict[str, str]:
     """
     available = {}
 
-    if os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID") and os.environ.get("CLOUD_ML_REGION"):
+    if os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"):
         available["anthropic"] = "claude-sonnet-4-6"
     elif os.environ.get("ANTHROPIC_API_KEY"):
         available["anthropic"] = "claude-sonnet-4-6"
@@ -117,9 +117,9 @@ def _call_anthropic(model_name: str, query: str, tools: list[dict]) -> list[Tool
     import anthropic
 
     project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
-    region = os.environ.get("CLOUD_ML_REGION")
+    region = os.environ.get("CLOUD_ML_REGION", "us-east5")
 
-    if project_id and region:
+    if project_id:
         client = anthropic.AnthropicVertex(project_id=project_id, region=region)
     else:
         client = anthropic.Anthropic()

@@ -5,7 +5,8 @@ name: aap
 # start: npm start
 
 transport: http
-endpoint: http://localhost:3000/mcp
+endpoint: ${MCP_ENDPOINT:-http://localhost:3000/mcp}
+ssl_verify: false
 headers:
   Authorization: "Bearer ${AAP_TOKEN}"
 

@@ -19,12 +19,15 @@ import yaml
 
 SERVERS_DIR = Path(__file__).resolve().parent.parent / "servers"
 
-_ENV_PATTERN = re.compile(r"\$\{([^}]+)\}")
+_ENV_PATTERN = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}")
 
 
 def _interpolate_env(value):
     if isinstance(value, str):
-        return _ENV_PATTERN.sub(lambda m: os.environ.get(m.group(1), m.group(0)), value)
+        return _ENV_PATTERN.sub(
+            lambda m: os.environ.get(m.group(1)) or m.group(2) or m.group(0),
+            value,
+        )
     if isinstance(value, dict):
         return {k: _interpolate_env(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -42,10 +45,14 @@ def _build_tool_source(config: dict):
     if transport == "http":
         from fastmcp.client.transports import StreamableHttpTransport
 
-        return StreamableHttpTransport(
-            url=config["endpoint"],
-            headers=config.get("headers", {}),
-        )
+        kwargs = {
+            "url": config["endpoint"],
+            "headers": config.get("headers", {}),
+        }
+        if config.get("ssl_verify") is False:
+            kwargs["verify"] = False
+
+        return StreamableHttpTransport(**kwargs)
 
     if transport == "stdio":
         return {"command": config["command"], "args": config.get("args", [])}
