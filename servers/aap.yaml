@@ -90,3 +90,103 @@ test_cases:
     query: "Give me details about when I started running these processes, showing both the queue status and completion dates."
     expected_tool: activation_instances_list
     category: hard
+
+  - id: AAP09-easy
+    query: "List all my projects."
+    expected_tool: projects_list
+    category: easy
+
+  - id: AAP10-easy
+    query: "Show me recent workflow jobs."
+    expected_tool: workflow_jobs_list
+    category: easy
+
+  - id: AAP11-easy
+    query: "List all host groups."
+    expected_tool: groups_list
+    category: easy
+
+  - id: AAP12-easy
+    query: "Show me the instance groups."
+    expected_tool: instance_groups_list
+    category: easy
+
+  - id: AAP13-easy
+    query: "Show me recent activity."
+    expected_tool: activity_stream_list
+    category: easy
+
+  - id: AAP14-easy
+    query: "What credential types are available?"
+    expected_tool: credential_types_list
+    category: easy
+
+  - id: AAP15-easy
+    query: "List all execution environments."
+    expected_tool: execution_environments_list
+    category: easy
+
+  - id: AAP16-easy
+    query: "Show me notification templates."
+    expected_tool: notification_templates_list
+    category: easy
+
+  - id: AAP17-easy
+    query: "List all settings."
+    expected_tool: settings_list
+    category: easy
+
+  - id: AAP18-easy
+    query: "Show me all teams."
+    expected_tool: teams_list
+    category: easy
+
+  - id: AAP19-easy
+    query: "List all organizations."
+    expected_tool: organizations_list
+    category: easy
+
+  - id: AAP20-easy
+    query: "What roles are available?"
+    expected_tool: role_definitions_list
+    category: easy
+
+  - id: AAP21-easy
+    query: "Who am I?"
+    expected_tool: me_list
+    category: easy
+
+  - id: AAP22-easy
+    query: "List configured authenticators."
+    expected_tool: authenticators_list
+    category: easy
+
+  - id: AAP23-easy
+    query: "Show me details about my instances."
+    expected_tool: instances_retrieve
+    category: easy
+
+  - id: AAP24-easy
+    query: "Show me the controller configuration."
+    expected_tool: config_retrieve
+    category: easy
+
+  - id: AAP25-easy
+    query: "What's the gateway status?"
+    expected_tool: status_retrieve
+    category: easy
+
+  - id: AAP26-easy
+    query: "Show me the variables for my hosts."
+    expected_tool: hosts_variable_data_retrieve
+    category: easy
+
+  - id: AAP27-easy
+    query: "Sync my inventory sources."
+    expected_tool: inventory_sources_update_create
+    category: easy
+
+  - id: AAP28-easy
+    query: "Show me the automation mesh topology."
+    expected_tool: mesh_visualizer_retrieve
+    category: easy
