@@ -116,6 +116,7 @@ def load_server_config(name: str) -> dict:
         "start": config.get("start"),
         "endpoint": config.get("endpoint"),
         "coverage": config.get("coverage"),
+        "toolsets": config.get("toolsets", []),
     }
 
 
