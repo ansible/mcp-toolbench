@@ -10,6 +10,15 @@ ssl_verify: false
 headers:
   Authorization: "Bearer ${AAP_TOKEN}"
 
+toolsets:
+  - job_management
+  - inventory_management
+  - system_monitoring
+  - user_management
+  - security_compliance
+  - platform_configuration
+  - content_discovery
+
 models:
   - anthropic:claude-sonnet-4-6
   - openai:gpt-4o

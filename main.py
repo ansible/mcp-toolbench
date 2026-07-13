@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 
-from harness.config import list_servers, load_server_config
+from harness.config import list_servers, load_raw_config, load_server_config
 from harness.lifecycle import setup_server, teardown_server
 from harness.runner import print_table, render_markdown, run, save_results
 
@@ -89,7 +89,6 @@ def cmd_run_all(args):
 
 
 def cmd_list(args):
-    from harness.config import load_raw_config
     from harness.providers import detect_available_providers, detect_default_model
 
     servers = list_servers()
@@ -209,6 +208,53 @@ def _generate_queries(model_str: str, tool: dict) -> dict:
         return {"easy": f"Use {tool['name']}", "hard": f"Use {tool['name']} indirectly"}
 
 
+def cmd_token_count(args):
+    from harness.providers import detect_default_model
+    from harness.token_counter import (
+        count_tokens_by_toolset,
+        count_tokens_single,
+        print_table as tc_print_table,
+        render_markdown as tc_render_markdown,
+        save_results as tc_save_results,
+        to_json,
+    )
+
+    config = load_server_config(args.server)
+    raw = load_raw_config(args.server)
+    model = args.model or (config["models"][0] if config["models"] else None)
+    if not model:
+        model = detect_default_model()
+        print(f"No model specified — auto-detected: {model}")
+
+    toolset = getattr(args, "toolset", None)
+    configured_toolsets = config.get("toolsets", [])
+
+    process = setup_server(config)
+
+    try:
+        if toolset:
+            report = count_tokens_by_toolset(config, model, [toolset], raw)
+        elif configured_toolsets:
+            print(f"Counting tokens across {len(configured_toolsets)} toolsets using {model}...")
+            report = count_tokens_by_toolset(config, model, configured_toolsets, raw)
+        else:
+            report = count_tokens_single(config["tool_source"], model, server_name=args.server)
+
+        if args.output == "json":
+            import json
+            print(json.dumps(to_json(report), indent=2))
+        elif args.output == "md":
+            print(tc_render_markdown(report))
+        else:
+            tc_print_table(report)
+
+        save_fmt = args.save_format or ("md" if args.output == "md" else "json")
+        path = tc_save_results(report, fmt=save_fmt)
+        print(f"\nSaved results to {path}")
+    finally:
+        teardown_server(process, config)
+
+
 def cmd_generate(args):
     from harness.config import SERVERS_DIR
     from harness.mcp_client import get_tools
@@ -284,6 +330,14 @@ def main():
     # list
     subparsers.add_parser("list", help="List registered servers")
 
+    # token-count <server>
+    tc_parser = subparsers.add_parser("token-count", help="Measure per-tool token cost")
+    tc_parser.add_argument("server", help="Server name (matches servers/<name>.yaml)")
+    tc_parser.add_argument("--model", default=None, help="Override model (provider:name format)")
+    tc_parser.add_argument("--toolset", default=None, help="Filter to a specific toolset endpoint")
+    tc_parser.add_argument("--output", choices=["table", "json", "md"], default="table", help="Output format")
+    tc_parser.add_argument("--save-format", choices=["json", "md"], default=None, help="Saved file format")
+
     # generate <server>
     gen_parser = subparsers.add_parser("generate", help="Generate test cases from tool discovery")
     gen_parser.add_argument("server", help="Server name")
@@ -296,6 +350,7 @@ def main():
         "run": cmd_run,
         "run-all": cmd_run_all,
         "list": cmd_list,
+        "token-count": cmd_token_count,
         "generate": cmd_generate,
     }
     commands[args.command](args)
