@@ -117,6 +117,8 @@ def load_server_config(name: str) -> dict:
         "endpoint": config.get("endpoint"),
         "coverage": config.get("coverage"),
         "toolsets": config.get("toolsets", []),
+        "mode": config.get("mode", "single"),
+        "max_turns": config.get("max_turns", 10),
     }
 
 

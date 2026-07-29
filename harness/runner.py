@@ -6,8 +6,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from harness.mcp_client import get_tools
-from harness.providers import call_model
+from harness.mcp_client import get_tools, mcp_session, normalize_tools, execute_tool
+from harness.providers import call_model, call_model_messages, format_tool_results
 
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
@@ -188,6 +188,106 @@ def run(
         "results": results,
         "accuracy": total_passes / total_runs if total_runs else 0.0,
         "deepeval_pass_rate": deepeval_passed / len(results) if results else 0.0,
+    }
+
+
+def _extract_effective_tools(tool_calls) -> set[str]:
+    """Unwrap call_tool arguments to get the actual tool name.
+
+    If the LLM called call_tool(tool_name="jobs_list"),
+    the effective tool is "jobs_list", not "call_tool".
+    """
+    names = set()
+    for tc in tool_calls:
+        if tc.name == "call_tool" and "tool_name" in tc.input_parameters:
+            names.add(tc.input_parameters["tool_name"])
+        else:
+            names.add(tc.name)
+    return names
+
+
+def _run_agentic_case(tool_source, query, model, max_turns):
+    """Run one agentic loop: query → tool calls → execute → feed back → repeat."""
+    from harness.providers import ToolCallResult
+
+    all_tool_calls = []
+
+    async def _loop():
+        async with mcp_session(tool_source) as client:
+            raw_tools = await client.list_tools()
+            tools = normalize_tools(raw_tools)
+            messages = [{"role": "user", "content": query}]
+
+            for _turn in range(max_turns):
+                tc_results, assistant_msg, is_done = call_model_messages(model, messages, tools)
+                messages.append(assistant_msg)
+
+                if is_done or not tc_results:
+                    break
+
+                exec_results = []
+                for tc in tc_results:
+                    result_text = await execute_tool(client, tc.name, tc.input_parameters)
+                    exec_results.append(result_text)
+                    all_tool_calls.append(tc)
+
+                result_msgs = format_tool_results(model, tc_results, exec_results)
+                messages.extend(result_msgs)
+
+            return len(messages)
+
+    asyncio.run(_loop())
+    return all_tool_calls
+
+
+def run_agentic(
+    tool_source,
+    test_cases: list[dict],
+    model: str,
+    repeats: int = 3,
+    max_turns: int = 10,
+    threshold: float = 0.7,
+) -> dict:
+    """Multi-turn agentic evaluation. Executes tool calls against the MCP server."""
+    results = []
+
+    for i, case in enumerate(test_cases, 1):
+        print(f"  [{i}/{len(test_cases)}] {case['id']}: {case['query'][:60]}...", flush=True)
+        acceptable = {case["expected_tool"], *case.get("acceptable_tools", [])}
+        runs = []
+
+        for _ in range(repeats):
+            all_tool_calls = _run_agentic_case(tool_source, case["query"], model, max_turns)
+            effective = _extract_effective_tools(all_tool_calls)
+            chosen_names = list(effective)
+            runs.append(chosen_names)
+
+        pass_count = sum(1 for chosen in runs if any(name in acceptable for name in chosen))
+
+        results.append({
+            "id": case["id"],
+            "query": case["query"],
+            "expected_tool": case["expected_tool"],
+            "category": case["category"],
+            "runs": runs,
+            "pass_count": pass_count,
+            "pass_rate": pass_count / repeats,
+        })
+
+    total_passes = sum(r["pass_count"] for r in results)
+    total_runs = len(results) * repeats
+
+    return {
+        "model": model,
+        "repeats": repeats,
+        "mode": "agentic",
+        "max_turns": max_turns,
+        "tool_count": 3,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "metrics_used": ["tool_correctness"],
+        "threshold": threshold,
+        "results": results,
+        "accuracy": total_passes / total_runs if total_runs else 0.0,
     }
 
 

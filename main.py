@@ -4,7 +4,7 @@ import sys
 
 from harness.config import list_servers, load_raw_config, load_server_config
 from harness.lifecycle import setup_server, teardown_server
-from harness.runner import print_table, render_markdown, run, save_results
+from harness.runner import print_table, render_markdown, run, run_agentic, save_results
 
 
 def cmd_run(args):
@@ -31,15 +31,25 @@ def cmd_run(args):
                 print(f"Server: {config['name']}  |  Model: {model}")
                 print(f"{'='*60}\n")
 
-            run_data = run(
-                config["tool_source"],
-                config["test_cases"],
-                model,
-                repeats=repeats,
-                metric_names=metric_names,
-                threshold=threshold,
-                judge_model=args.judge_model,
-            )
+            if config.get("mode") == "agentic":
+                run_data = run_agentic(
+                    config["tool_source"],
+                    config["test_cases"],
+                    model,
+                    repeats=repeats,
+                    max_turns=config.get("max_turns", 10),
+                    threshold=threshold,
+                )
+            else:
+                run_data = run(
+                    config["tool_source"],
+                    config["test_cases"],
+                    model,
+                    repeats=repeats,
+                    metric_names=metric_names,
+                    threshold=threshold,
+                    judge_model=args.judge_model,
+                )
 
             if args.output == "json":
                 print(json.dumps(run_data, indent=2))

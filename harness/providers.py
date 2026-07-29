@@ -14,6 +14,7 @@ from dataclasses import dataclass
 class ToolCallResult:
     name: str
     input_parameters: dict
+    call_id: str = ""
 
 
 def parse_model_string(model: str) -> tuple[str, str]:
@@ -113,17 +114,19 @@ def _call_ollama(model_name: str, query: str, tools: list[dict]) -> list[ToolCal
     ]
 
 
-def _call_anthropic(model_name: str, query: str, tools: list[dict]) -> list[ToolCallResult]:
+def _get_anthropic_client():
     import anthropic
 
     project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
     region = os.environ.get("CLOUD_ML_REGION", "us-east5")
 
     if project_id:
-        client = anthropic.AnthropicVertex(project_id=project_id, region=region)
-    else:
-        client = anthropic.Anthropic()
+        return anthropic.AnthropicVertex(project_id=project_id, region=region)
+    return anthropic.Anthropic()
 
+
+def _call_anthropic(model_name: str, query: str, tools: list[dict]) -> list[ToolCallResult]:
+    client = _get_anthropic_client()
     anthropic_tools = _to_anthropic_tools(tools)
     response = client.messages.create(
         model=model_name,
@@ -136,10 +139,41 @@ def _call_anthropic(model_name: str, query: str, tools: list[dict]) -> list[Tool
         ToolCallResult(
             name=block.name,
             input_parameters=block.input or {},
+            call_id=block.id,
         )
         for block in response.content
         if block.type == "tool_use"
     ]
+
+
+def _call_anthropic_messages(
+    model_name: str, messages: list[dict], tools: list[dict]
+) -> tuple[list[ToolCallResult], dict, bool]:
+    client = _get_anthropic_client()
+    anthropic_tools = _to_anthropic_tools(tools)
+    response = client.messages.create(
+        model=model_name,
+        max_tokens=4096,
+        tools=anthropic_tools,
+        messages=messages,
+    )
+
+    tool_calls = [
+        ToolCallResult(name=block.name, input_parameters=block.input or {}, call_id=block.id)
+        for block in response.content
+        if block.type == "tool_use"
+    ]
+
+    assistant_msg = {
+        "role": "assistant",
+        "content": [
+            {"type": b.type, **({"id": b.id, "name": b.name, "input": b.input} if b.type == "tool_use" else {"text": b.text})}
+            for b in response.content
+        ],
+    }
+
+    is_done = response.stop_reason == "end_turn"
+    return tool_calls, assistant_msg, is_done
 
 
 def _call_openai(model_name: str, query: str, tools: list[dict]) -> list[ToolCallResult]:
@@ -161,14 +195,55 @@ def _call_openai(model_name: str, query: str, tools: list[dict]) -> list[ToolCal
             args = tc.function.arguments
             if isinstance(args, str):
                 args = json.loads(args)
-            results.append(ToolCallResult(name=tc.function.name, input_parameters=args))
+            results.append(ToolCallResult(name=tc.function.name, input_parameters=args, call_id=tc.id))
     return results
+
+
+def _call_openai_messages(
+    model_name: str, messages: list[dict], tools: list[dict]
+) -> tuple[list[ToolCallResult], dict, bool]:
+    import json
+
+    from openai import OpenAI
+
+    client = OpenAI()
+    openai_tools = _to_openai_tools(tools)
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=messages,
+        tools=openai_tools,
+    )
+
+    choice = response.choices[0]
+    raw_tool_calls = choice.message.tool_calls or []
+
+    tool_calls = []
+    for tc in raw_tool_calls:
+        args = tc.function.arguments
+        if isinstance(args, str):
+            args = json.loads(args)
+        tool_calls.append(ToolCallResult(name=tc.function.name, input_parameters=args, call_id=tc.id))
+
+    assistant_msg = {"role": "assistant", "content": choice.message.content or ""}
+    if raw_tool_calls:
+        assistant_msg["tool_calls"] = [
+            {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+            for tc in raw_tool_calls
+        ]
+
+    is_done = len(tool_calls) == 0
+    return tool_calls, assistant_msg, is_done
 
 
 _PROVIDERS = {
     "ollama": _call_ollama,
     "anthropic": _call_anthropic,
     "openai": _call_openai,
+}
+
+_PROVIDERS_MESSAGES = {
+    "anthropic": _call_anthropic_messages,
+    "openai": _call_openai_messages,
 }
 
 
@@ -189,3 +264,39 @@ def call_model(model: str, query: str, tools: list[dict]) -> list[ToolCallResult
     if not call_fn:
         raise ValueError(f"Unknown provider: {provider!r}. Use: {', '.join(_PROVIDERS)}")
     return call_fn(model_name, query, tools)
+
+
+def call_model_messages(
+    model: str, messages: list[dict], tools: list[dict]
+) -> tuple[list[ToolCallResult], dict, bool]:
+    """Multi-turn variant: takes full message history, returns (tool_calls, assistant_msg, is_done)."""
+    provider, model_name = parse_model_string(model)
+    call_fn = _PROVIDERS_MESSAGES.get(provider)
+    if not call_fn:
+        raise ValueError(f"Agentic mode not supported for provider: {provider!r}. Use: {', '.join(_PROVIDERS_MESSAGES)}")
+    return call_fn(model_name, messages, tools)
+
+
+def format_tool_results(
+    model: str, tool_calls: list[ToolCallResult], results: list[str]
+) -> list[dict]:
+    """Format tool execution results as messages to append to history."""
+    provider, _ = parse_model_string(model)
+
+    if provider == "anthropic":
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": tc.call_id, "content": result}
+                    for tc, result in zip(tool_calls, results)
+                ],
+            }
+        ]
+    elif provider == "openai":
+        return [
+            {"role": "tool", "tool_call_id": tc.call_id, "content": result}
+            for tc, result in zip(tool_calls, results)
+        ]
+    else:
+        raise ValueError(f"format_tool_results not supported for {provider!r}")
