@@ -31,25 +31,29 @@ def cmd_run(args):
                 print(f"Server: {config['name']}  |  Model: {model}")
                 print(f"{'='*60}\n")
 
-            if config.get("mode") == "agentic":
-                run_data = run_agentic(
-                    config["tool_source"],
-                    config["test_cases"],
-                    model,
-                    repeats=repeats,
-                    max_turns=config.get("max_turns", 10),
-                    threshold=threshold,
-                )
-            else:
-                run_data = run(
-                    config["tool_source"],
-                    config["test_cases"],
-                    model,
-                    repeats=repeats,
-                    metric_names=metric_names,
-                    threshold=threshold,
-                    judge_model=args.judge_model,
-                )
+            try:
+                if config.get("mode") == "agentic":
+                    run_data = run_agentic(
+                        config["tool_source"],
+                        config["test_cases"],
+                        model,
+                        repeats=repeats,
+                        max_turns=config.get("max_turns", 10),
+                        threshold=threshold,
+                    )
+                else:
+                    run_data = run(
+                        config["tool_source"],
+                        config["test_cases"],
+                        model,
+                        repeats=repeats,
+                        metric_names=metric_names,
+                        threshold=threshold,
+                        judge_model=args.judge_model,
+                    )
+            except Exception as e:
+                print(f"Skipping {model}: {e}", file=sys.stderr)
+                continue
 
             if args.output == "json":
                 print(json.dumps(run_data, indent=2))
