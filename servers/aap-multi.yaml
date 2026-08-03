@@ -1,0 +1,105 @@
+name: aap-multi
+
+transport: http
+endpoint: ${MCP_ENDPOINT:-http://localhost:3000/mcp}
+ssl_verify: false
+headers:
+  Authorization: "Bearer ${AAP_TOKEN}"
+
+mode: agentic
+max_turns: 10
+
+models:
+  - anthropic:claude-sonnet-4-6
+
+repeats: 3
+threshold: 0.7
+metrics:
+  - tool_correctness
+
+test_cases:
+  - id: SCEN01-job-template
+    query: >
+      Create a job template called 'deploy-prod' using the 'Demo Project'
+      project and 'Demo Inventory'. Add a machine credential, set up a
+      survey that asks for the target environment, create a daily schedule,
+      and configure email notifications on failure.
+    expected_tools:
+      - job_templates_create
+      - job_templates_credentials_create
+      - job_templates_survey_spec_create
+      - schedules_create
+      - job_templates_notification_templates_error_create
+    category: multi-step
+
+  - id: SCEN02-tenant-org
+    query: >
+      Set up a new tenant organization called 'Acme Corp'. Associate an
+      execution environment, assign an instance group, and add a Galaxy
+      credential for pulling collections.
+    expected_tools:
+      - organizations_create
+      - organizations_execution_environments_create
+      - organizations_instance_groups_create
+      - organizations_galaxy_credentials_create
+    category: multi-step
+
+  - id: SCEN03-credential-audit
+    query: >
+      I need to audit our credentials. Show me all credentials we have
+      and which job templates each one is attached to.
+    expected_tools:
+      - credentials_list
+      - job_templates_credentials_list
+    category: multi-step
+
+  - id: SCEN04-dynamic-inventory
+    query: >
+      Create a new inventory called 'AWS Staging' and add a cloud
+      inventory source for it, then trigger a sync.
+    expected_tools:
+      - inventories_create
+      - inventory_sources_create
+      - inventory_sources_update_create
+    category: multi-step
+
+  - id: SCEN05-user-activity
+    query: >
+      What has user 'admin' been doing recently? Show me their activity.
+    expected_tools:
+      - users_list
+    category: easy
+
+  - id: SCEN06-host-facts
+    query: >
+      What are the cached Ansible facts for host 'webserver01'?
+    expected_tools:
+      - hosts_list
+    category: easy
+
+  - id: SCEN07-unified-search
+    query: >
+      Is there any existing automation — job template or workflow — for
+      patching Linux servers?
+    expected_tools:
+      - job_templates_list
+      - workflow_job_templates_list
+    category: multi-step
+
+  - id: SCEN08-hub-content
+    query: >
+      Search for Ansible collections related to 'cloud' in our Galaxy hub,
+      and also show me what execution environment container images are
+      available.
+    expected_tools:
+      - ansible_content_collections_index
+      - execution_environments_repositories_get_repositories
+    category: multi-step
+
+  - id: SCEN09-meta-discovery
+    query: >
+      I don't know what tools are available. List all the tools you have
+      access to and then launch job template ID 7.
+    expected_tools:
+      - job_templates_launch_create
+    category: hard

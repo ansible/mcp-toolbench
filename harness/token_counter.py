@@ -251,14 +251,15 @@ def count_tokens_by_toolset(
         tools = asyncio.run(get_tools(tool_source))
         print(f"  {ts_name}: {len(tools)} tools")
 
-        tool_counts = [
-            ToolTokenCount(
+        tool_counts = []
+        for i, tool in enumerate(tools, 1):
+            tokens = count_tool(tool)
+            print(f"    [{i}/{len(tools)}] {tool['name']}: {tokens} tokens")
+            tool_counts.append(ToolTokenCount(
                 name=tool["name"],
-                tokens=count_tool(tool),
+                tokens=tokens,
                 properties=_count_properties(tool["parameters"]),
-            )
-            for tool in tools
-        ]
+            ))
 
         ts_total = sum(tc.tokens for tc in tool_counts)
         for tc in tool_counts:
@@ -271,6 +272,19 @@ def count_tokens_by_toolset(
             total_tokens=ts_total,
             tools=tool_counts,
         ))
+
+        partial = TokenReport(
+            model=model, server=config.get("name", ""),
+            baseline_tokens=baseline, tool_use_framing_tokens=framing,
+            total_tokens=sum(ts.total_tokens for ts in toolset_reports),
+            total_tools=sum(ts.tool_count for ts in toolset_reports),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            toolsets=list(toolset_reports),
+        )
+        partial_path = RESULTS_DIR / "token-count_partial.json"
+        RESULTS_DIR.mkdir(exist_ok=True)
+        partial_path.write_text(json.dumps(to_json(partial), indent=2))
+        print(f"  -> partial results saved to {partial_path}")
 
     grand_total = sum(ts.total_tokens for ts in toolset_reports)
     total_tools = sum(ts.tool_count for ts in toolset_reports)
