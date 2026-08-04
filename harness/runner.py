@@ -549,11 +549,11 @@ def _build_recommendations(results: list[dict], repeats: int) -> list[str]:
     return lines
 
 
-def save_results(run_data: dict, server_name: str, fmt: str = "json") -> Path:
+def save_results(run_data: dict, eval_name: str, fmt: str = "json") -> Path:
     RESULTS_DIR.mkdir(exist_ok=True)
     safe_model = run_data["model"].replace(":", "-")
     timestamp = run_data["timestamp"].replace(":", "-")
-    base = f"{server_name}_{safe_model}_{timestamp}"
+    base = f"{eval_name}_{safe_model}_{timestamp}"
 
     if fmt == "md":
         path = RESULTS_DIR / f"{base}.md"

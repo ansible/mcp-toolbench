@@ -38,7 +38,7 @@ class ToolsetTokenReport:
 @dataclass
 class TokenReport:
     model: str
-    server: str
+    eval_name: str
     baseline_tokens: int
     tool_use_framing_tokens: int
     total_tokens: int
@@ -274,7 +274,7 @@ def count_tokens_by_toolset(
         ))
 
         partial = TokenReport(
-            model=model, server=config.get("name", ""),
+            model=model, eval_name=config.get("name", ""),
             baseline_tokens=baseline, tool_use_framing_tokens=framing,
             total_tokens=sum(ts.total_tokens for ts in toolset_reports),
             total_tools=sum(ts.tool_count for ts in toolset_reports),
@@ -304,7 +304,7 @@ def count_tokens_by_toolset(
 def count_tokens_single(
     tool_source,
     model: str,
-    server_name: str = "",
+    eval_name: str = "",
     toolset: str | None = None,
 ) -> TokenReport:
     provider, model_name = parse_model_string(model)
@@ -332,7 +332,7 @@ def count_tokens_single(
 
     return TokenReport(
         model=model,
-        server=server_name,
+        eval_name=eval_name,
         baseline_tokens=baseline,
         tool_use_framing_tokens=framing,
         total_tokens=total,
@@ -343,7 +343,7 @@ def count_tokens_single(
 
 
 def print_table(report: TokenReport) -> None:
-    print(f"\nServer: {report.server}  |  Model: {report.model}")
+    print(f"\nEval: {report.eval_name}  |  Model: {report.model}")
     print(f"Baseline (no tools): {report.baseline_tokens:,} tokens")
     print(f"Tool-use framing: {report.tool_use_framing_tokens:,} tokens (one-time cost when tools are enabled)\n")
 
@@ -362,12 +362,12 @@ def print_table(report: TokenReport) -> None:
 def render_markdown(report: TokenReport) -> str:
     effective = report.tool_use_framing_tokens + report.total_tokens
     lines = [
-        f"# Token Count Report: {report.server}",
+        f"# Token Count Report: {report.eval_name}",
         "",
         "| Metric | Value |",
         "|--------|-------|",
         f"| Model | `{report.model}` |",
-        f"| Server | {report.server} |",
+        f"| Eval | {report.eval_name} |",
         f"| Total tools | {report.total_tools} |",
         f"| Tool definitions | {report.total_tokens:,} tokens |",
         f"| Tool-use framing | {report.tool_use_framing_tokens:,} tokens |",
@@ -424,7 +424,7 @@ def to_json(report: TokenReport) -> dict:
         }
     return {
         "model": report.model,
-        "server": report.server,
+        "eval_name": report.eval_name,
         "baseline_tokens": report.baseline_tokens,
         "tool_use_framing_tokens": report.tool_use_framing_tokens,
         "total_tokens": report.total_tokens,
@@ -439,7 +439,7 @@ def save_results(report: TokenReport, fmt: str = "json") -> Path:
     RESULTS_DIR.mkdir(exist_ok=True)
     safe_model = report.model.replace(":", "-")
     timestamp = report.timestamp.replace(":", "-")
-    base = f"token-count_{report.server}_{safe_model}_{timestamp}"
+    base = f"token-count_{report.eval_name}_{safe_model}_{timestamp}"
 
     if fmt == "md":
         path = RESULTS_DIR / f"{base}.md"

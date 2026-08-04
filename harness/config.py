@@ -1,8 +1,8 @@
-"""Loads per-server configs from servers/<name>.yaml.
+"""Loads eval configs from evals/<name>.yaml.
 
-Each YAML file describes a complete server evaluation setup: how to connect,
-which models to test, eval thresholds, and inline test cases. String values
-support ${ENV_VAR} interpolation for secrets.
+Each YAML file describes a complete evaluation setup: how to connect to the
+MCP server, which models to test, eval thresholds, and inline test cases.
+String values support ${ENV_VAR} interpolation for secrets.
 
 Transport types:
 - "in_process": a FastMCP server object importable in this codebase
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-SERVERS_DIR = Path(__file__).resolve().parent.parent / "servers"
+EVALS_DIR = Path(__file__).resolve().parent.parent / "evals"
 
 _ENV_PATTERN = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}")
 
@@ -61,23 +61,23 @@ def _build_tool_source(config: dict):
 
 
 def load_raw_config(name: str) -> dict:
-    config_path = SERVERS_DIR / f"{name}.yaml"
+    config_path = EVALS_DIR / f"{name}.yaml"
     if not config_path.exists():
-        raise FileNotFoundError(f"No server config found: {config_path}")
+        raise FileNotFoundError(f"No eval config found: {config_path}")
     with open(config_path) as f:
         config = yaml.safe_load(f)
     return _interpolate_env(config)
 
 
 def load_tool_source(name: str):
-    """Return just the tool source for a server (useful for one-off scripts
-    like the test case generator)."""
+    """Return just the tool source for an eval config (useful for one-off
+    scripts like the test case generator)."""
     return _build_tool_source(load_raw_config(name))
 
 
 def _load_generated_cases(name: str) -> list[dict]:
-    """Load generated test cases from servers/<name>.generated.yaml if it exists."""
-    gen_path = SERVERS_DIR / f"{name}.generated.yaml"
+    """Load generated test cases from evals/<name>.generated.yaml if it exists."""
+    gen_path = EVALS_DIR / f"{name}.generated.yaml"
     if not gen_path.exists():
         return []
     with open(gen_path) as f:
@@ -88,8 +88,8 @@ def _load_generated_cases(name: str) -> list[dict]:
     return _interpolate_env(cases)
 
 
-def load_server_config(name: str) -> dict:
-    """Return a structured config dict for the named server.
+def load_eval_config(name: str) -> dict:
+    """Return a structured config dict for the named eval.
 
     Merges static test cases from <name>.yaml with generated cases from
     <name>.generated.yaml. Static cases take priority — if a generated case
@@ -122,11 +122,11 @@ def load_server_config(name: str) -> dict:
     }
 
 
-def list_servers() -> list[str]:
-    """Return names of all registered servers (excludes .generated.yaml files)."""
-    if not SERVERS_DIR.exists():
+def list_evals() -> list[str]:
+    """Return names of all registered evals (excludes .generated.yaml files)."""
+    if not EVALS_DIR.exists():
         return []
     return sorted(
-        p.stem for p in SERVERS_DIR.glob("*.yaml")
+        p.stem for p in EVALS_DIR.glob("*.yaml")
         if not p.name.endswith(".generated.yaml")
     )
