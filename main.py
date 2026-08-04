@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 
-from harness.config import list_servers, load_raw_config, load_server_config
+from harness.config import list_evals, load_raw_config, load_eval_config
 from harness.lifecycle import setup_server, teardown_server
 from harness.runner import print_table, render_markdown, run, run_agentic, save_results
 
@@ -10,7 +10,7 @@ from harness.runner import print_table, render_markdown, run, run_agentic, save_
 def cmd_run(args):
     from harness.providers import detect_default_model
 
-    config = load_server_config(args.server)
+    config = load_eval_config(args.eval)
     models = [args.model] if args.model else config["models"]
     if not models:
         default = detect_default_model()
@@ -78,36 +78,36 @@ def cmd_run(args):
 
 
 def cmd_run_all(args):
-    servers = list_servers()
-    if not servers:
-        print("No servers registered in servers/", file=sys.stderr)
+    evals = list_evals()
+    if not evals:
+        print("No evals registered in evals/", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Running evals for {len(servers)} servers: {', '.join(servers)}\n")
+    print(f"Running {len(evals)} evals: {', '.join(evals)}\n")
 
     failed = []
-    for server_name in servers:
-        args.server = server_name
+    for eval_name in evals:
+        args.eval = eval_name
         try:
             cmd_run(args)
         except SystemExit as e:
             if e.code == 1:
-                failed.append(server_name)
+                failed.append(eval_name)
         except Exception as e:
-            print(f"\nError running {server_name}: {e}", file=sys.stderr)
-            failed.append(server_name)
+            print(f"\nError running {eval_name}: {e}", file=sys.stderr)
+            failed.append(eval_name)
 
     if failed:
-        print(f"\nFailed servers: {', '.join(failed)}")
+        print(f"\nFailed evals: {', '.join(failed)}")
         sys.exit(1)
 
 
 def cmd_list(args):
     from harness.providers import detect_available_providers, detect_default_model
 
-    servers = list_servers()
-    if not servers:
-        print("No servers registered in servers/")
+    evals = list_evals()
+    if not evals:
+        print("No evals registered in evals/")
         return
 
     available = detect_available_providers()
@@ -118,7 +118,7 @@ def cmd_list(args):
         print("No cloud providers detected — defaulting to local Ollama\n")
 
     print(f"{'NAME':<20}{'TRANSPORT':<15}{'MODELS':<40}{'TESTS':<8}")
-    for name in servers:
+    for name in evals:
         config = load_raw_config(name)
         models = config.get("models", [])
         models_str = ", ".join(models) if models else "(auto-detect)"
@@ -233,8 +233,8 @@ def cmd_token_count(args):
         to_json,
     )
 
-    config = load_server_config(args.server)
-    raw = load_raw_config(args.server)
+    config = load_eval_config(args.eval)
+    raw = load_raw_config(args.eval)
     model = args.model or (config["models"][0] if config["models"] else None)
     if not model:
         model = detect_default_model()
@@ -252,7 +252,7 @@ def cmd_token_count(args):
             print(f"Counting tokens across {len(configured_toolsets)} toolsets using {model}...")
             report = count_tokens_by_toolset(config, model, configured_toolsets, raw)
         else:
-            report = count_tokens_single(config["tool_source"], model, server_name=args.server)
+            report = count_tokens_single(config["tool_source"], model, eval_name=args.eval)
 
         if args.output == "json":
             import json
@@ -270,7 +270,7 @@ def cmd_token_count(args):
 
 
 def cmd_generate(args):
-    from harness.config import SERVERS_DIR
+    from harness.config import EVALS_DIR
     from harness.mcp_client import get_tools
     from harness.providers import detect_default_model
 
@@ -278,7 +278,7 @@ def cmd_generate(args):
 
     import yaml
 
-    config = load_server_config(args.server)
+    config = load_eval_config(args.eval)
     process = setup_server(config)
 
     try:
@@ -292,7 +292,7 @@ def cmd_generate(args):
 
         static_ids = {c["id"] for c in config.get("test_cases", [])}
         print(f"Generating test cases for {count}/{len(tools)} tools using {model}...")
-        print(f"Static test cases in {args.server}.yaml: {len(static_ids)}")
+        print(f"Static test cases in {args.eval}.yaml: {len(static_ids)}")
 
         cases = []
         for i, tool in enumerate(tools[:count], start=1):
@@ -309,12 +309,12 @@ def cmd_generate(args):
                     "source": "generated",
                 })
 
-        out_path = SERVERS_DIR / f"{args.server}.generated.yaml"
+        out_path = EVALS_DIR / f"{args.eval}.generated.yaml"
         with open(out_path, "w") as f:
             yaml.dump({"test_cases": cases}, f, default_flow_style=False, sort_keys=False)
 
         print(f"\nGenerated {len(cases)} test cases -> {out_path}")
-        print(f"At runtime, these merge with the {len(static_ids)} static cases from {args.server}.yaml")
+        print(f"At runtime, these merge with the {len(static_ids)} static cases from {args.eval}.yaml")
     finally:
         teardown_server(process, config)
 
@@ -334,27 +334,27 @@ def main():
     shared.add_argument("--output", choices=["table", "json", "md"], default="table", help="Output format")
     shared.add_argument("--save-format", choices=["json", "md"], default=None, help="Saved file format (defaults to match --output)")
 
-    # run <server>
-    run_parser = subparsers.add_parser("run", parents=[shared], help="Run evals for a server")
-    run_parser.add_argument("server", help="Server name (matches servers/<name>.yaml)")
+    # run <eval>
+    run_parser = subparsers.add_parser("run", parents=[shared], help="Run an eval")
+    run_parser.add_argument("eval", help="Eval name (matches evals/<name>.yaml)")
 
     # run-all
-    subparsers.add_parser("run-all", parents=[shared], help="Run evals for all registered servers")
+    subparsers.add_parser("run-all", parents=[shared], help="Run all registered evals")
 
     # list
-    subparsers.add_parser("list", help="List registered servers")
+    subparsers.add_parser("list", help="List registered evals")
 
-    # token-count <server>
+    # token-count <eval>
     tc_parser = subparsers.add_parser("token-count", help="Measure per-tool token cost")
-    tc_parser.add_argument("server", help="Server name (matches servers/<name>.yaml)")
+    tc_parser.add_argument("eval", help="Eval name (matches evals/<name>.yaml)")
     tc_parser.add_argument("--model", default=None, help="Override model (provider:name format)")
     tc_parser.add_argument("--toolset", default=None, help="Filter to a specific toolset endpoint")
     tc_parser.add_argument("--output", choices=["table", "json", "md"], default="table", help="Output format")
     tc_parser.add_argument("--save-format", choices=["json", "md"], default=None, help="Saved file format")
 
-    # generate <server>
+    # generate <eval>
     gen_parser = subparsers.add_parser("generate", help="Generate test cases from tool discovery")
-    gen_parser.add_argument("server", help="Server name")
+    gen_parser.add_argument("eval", help="Eval name")
     gen_parser.add_argument("--model", default=None, help="Model for generation")
     gen_parser.add_argument("--count", type=int, default=None, help="Override coverage — max tools to generate for")
 

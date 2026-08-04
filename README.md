@@ -10,13 +10,13 @@ queries through various LLMs, and score tool-calling accuracy using
 - **DeepEval** — scoring engine (ToolCorrectnessMetric, ArgumentCorrectnessMetric, MCPUseMetric)
 - **FastMCP** — MCP client for tool discovery and server connectivity
 - **Multi-model providers** — Anthropic (Vertex AI + direct API), OpenAI, Ollama
-- **YAML server registry** — each MCP server gets a config file with connection details, test cases, and eval settings
+- **YAML eval registry** — each eval gets a config file with connection details, test cases, and eval settings
 
 ## Project structure
 
 ```
 mcp-toolbench/
-├── servers/
+├── evals/
 │   ├── aap.yaml                 # AAP MCP server config + test cases
 │   └── dummy.yaml               # dummy in-process server for local testing
 ├── harness/
@@ -55,16 +55,16 @@ If no cloud credentials are found, it defaults to local Ollama.
 ## Usage
 
 ```bash
-# List registered servers and detected providers
+# List registered evals and detected providers
 python main.py list
 
-# Run evals for a server (uses models from YAML config)
+# Run an eval (uses models from YAML config)
 python main.py run aap
 
 # Override model
 python main.py run aap --model anthropic:claude-sonnet-4-6 --repeats 1
 
-# Run all registered servers
+# Run all registered evals
 python main.py run-all
 
 # CI mode — exits non-zero if below threshold
@@ -80,10 +80,10 @@ python main.py run aap --save-format md
 python main.py generate aap --model anthropic:claude-sonnet-4-6
 ```
 
-## Server config format (`servers/<name>.yaml`)
+## Eval config format (`evals/<name>.yaml`)
 
 ```yaml
-name: my-server
+name: my-eval
 
 # Optional: repo cloning + server lifecycle
 repo: https://github.com/org/my-mcp-server
@@ -129,8 +129,8 @@ Each tool gets an easy (keyword-matching) and hard (paraphrased) query.
 
 Test cases live in two places:
 
-- **`servers/<name>.yaml`** — hand-curated static cases, committed to git. These are your ground truth.
-- **`servers/<name>.generated.yaml`** — LLM-generated cases, created by `python main.py generate <name>`. Gitignored.
+- **`evals/<name>.yaml`** — hand-curated static cases, committed to git. These are your ground truth.
+- **`evals/<name>.generated.yaml`** — LLM-generated cases, created by `python main.py generate <name>`. Gitignored.
 
 At runtime, both are merged. Static cases take priority — if a generated case has the same ID as a static one, the generated case is skipped.
 
@@ -159,8 +159,8 @@ include the expected tool. DeepEval metrics provide additional scoring
 
 Results are saved to `results/` as JSON or Markdown.
 
-## Adding a new server
+## Adding a new eval
 
-1. Create `servers/<name>.yaml` with connection details and hand-written test cases
+1. Create `evals/<name>.yaml` with connection details and hand-written test cases
 2. Run `python main.py generate <name>` to auto-generate additional cases into `<name>.generated.yaml`
 3. Run `python main.py run <name>` — static + generated cases are merged automatically
