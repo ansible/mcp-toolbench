@@ -15,7 +15,8 @@ RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 def _build_expected_tools(case: dict) -> list:
     from deepeval.test_case import ToolCall
 
-    tools = [ToolCall(name=case["expected_tool"])]
+    required = case.get("expected_tools") or [case["expected_tool"]]
+    tools = [ToolCall(name=name) for name in required]
     for name in case.get("acceptable_tools", []):
         tools.append(ToolCall(name=name))
     return tools
@@ -114,7 +115,8 @@ def run(
     all_deepeval_cases = []
 
     for case in test_cases:
-        acceptable = {case["expected_tool"], *case.get("acceptable_tools", [])}
+        required = set(case.get("expected_tools") or [case["expected_tool"]])
+        acceptable = required | set(case.get("acceptable_tools", []))
         expected_tools = _build_expected_tools(case)
         runs = []
 
@@ -141,7 +143,7 @@ def run(
         results.append({
             "id": case["id"],
             "query": case["query"],
-            "expected_tool": case["expected_tool"],
+            "expected_tools": sorted(required),
             "category": case["category"],
             "runs": runs,
             "pass_count": pass_count,
@@ -206,7 +208,7 @@ def _extract_effective_tools(tool_calls) -> set[str]:
     return names
 
 
-def _run_agentic_case(tool_source, query, model, max_turns):
+def _run_agentic_case(tool_source, query, model, max_turns, verbose_prefix=""):
     """Run one agentic loop: query → tool calls → execute → feed back → repeat."""
     from harness.providers import ToolCallResult
 
@@ -218,12 +220,18 @@ def _run_agentic_case(tool_source, query, model, max_turns):
             tools = normalize_tools(raw_tools)
             messages = [{"role": "user", "content": query}]
 
-            for _turn in range(max_turns):
+            for turn in range(max_turns):
                 tc_results, assistant_msg, is_done = call_model_messages(model, messages, tools)
                 messages.append(assistant_msg)
 
                 if is_done or not tc_results:
+                    if verbose_prefix:
+                        print(f"{verbose_prefix}  turn {turn + 1}: done (no more tool calls)", flush=True)
                     break
+
+                tool_names = [tc.name for tc in tc_results]
+                if verbose_prefix:
+                    print(f"{verbose_prefix}  turn {turn + 1}: {', '.join(tool_names)}", flush=True)
 
                 exec_results = []
                 for tc in tc_results:
@@ -249,30 +257,50 @@ def run_agentic(
     threshold: float = 0.7,
 ) -> dict:
     """Multi-turn agentic evaluation. Executes tool calls against the MCP server."""
+    tools = asyncio.run(get_tools(tool_source))
+    tool_count = len(tools)
     results = []
 
     for i, case in enumerate(test_cases, 1):
-        print(f"  [{i}/{len(test_cases)}] {case['id']}: {case['query'][:60]}...", flush=True)
-        acceptable = {case["expected_tool"], *case.get("acceptable_tools", [])}
+        print(f"\n  [{i}/{len(test_cases)}] {case['id']}: {case['query'][:60]}...", flush=True)
+        required = set(case.get("expected_tools") or [case["expected_tool"]])
+        acceptable = required | set(case.get("acceptable_tools", []))
+        is_multi = len(required) > 1
         runs = []
 
-        for _ in range(repeats):
-            all_tool_calls = _run_agentic_case(tool_source, case["query"], model, max_turns)
+        for r in range(repeats):
+            prefix = f"    [repeat {r + 1}/{repeats}]"
+            print(prefix, flush=True)
+            all_tool_calls = _run_agentic_case(tool_source, case["query"], model, max_turns, verbose_prefix=prefix)
             effective = _extract_effective_tools(all_tool_calls)
             chosen_names = list(effective)
             runs.append(chosen_names)
+            print(f"{prefix}  -> effective tools: {', '.join(chosen_names) or '(none)'}", flush=True)
 
-        pass_count = sum(1 for chosen in runs if any(name in acceptable for name in chosen))
+        if is_multi:
+            pass_count = sum(1 for chosen in runs if required.issubset(set(chosen)))
+        else:
+            pass_count = sum(1 for chosen in runs if any(name in acceptable for name in chosen))
 
-        results.append({
+        status = "PASS" if pass_count == repeats else f"FAIL ({pass_count}/{repeats})"
+        print(f"  => {case['id']}: {status}  (expected: {', '.join(sorted(required))})", flush=True)
+
+        result_entry = {
             "id": case["id"],
             "query": case["query"],
-            "expected_tool": case["expected_tool"],
+            "expected_tools": sorted(required),
             "category": case["category"],
             "runs": runs,
             "pass_count": pass_count,
             "pass_rate": pass_count / repeats,
-        })
+        }
+
+        if is_multi and runs:
+            all_called = set().union(*[set(r) for r in runs])
+            result_entry["coverage"] = len(required & all_called) / len(required)
+            result_entry["tools_missing"] = sorted(required - all_called)
+
+        results.append(result_entry)
 
     total_passes = sum(r["pass_count"] for r in results)
     total_runs = len(results) * repeats
@@ -282,7 +310,7 @@ def run_agentic(
         "repeats": repeats,
         "mode": "agentic",
         "max_turns": max_turns,
-        "tool_count": 3,
+        "tool_count": tool_count,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "metrics_used": ["tool_correctness"],
         "threshold": threshold,
@@ -317,6 +345,11 @@ def print_table(run_data: dict) -> None:
         print(f"Threshold: {run_data.get('threshold', 0.7)}")
 
 
+def _format_expected(r: dict) -> str:
+    tools = r.get("expected_tools") or [r.get("expected_tool", "?")]
+    return ", ".join(f"`{t}`" for t in tools)
+
+
 def render_markdown(run_data: dict) -> str:
     repeats = run_data["repeats"]
     results = run_data["results"]
@@ -348,19 +381,21 @@ def render_markdown(run_data: dict) -> str:
     lines.append("")
 
     if has_deepeval:
-        lines.append("| ID | Pass | Score | Category | Expected Tool | Query |")
-        lines.append("|----|----- |-------|----------|---------------|-------|")
+        lines.append("| ID | Pass | Score | Category | Expected Tool(s) | Query |")
+        lines.append("|----|----- |-------|----------|------------------|-------|")
         for r in results:
             pass_str = f"{r['pass_count']}/{repeats}"
             score = f"{r.get('deepeval_score', 0):.2f}"
             status = "PASS" if r.get("deepeval_passed") else "FAIL"
-            lines.append(f"| {r['id']} | {pass_str} {status} | {score} | {r['category']} | `{r['expected_tool']}` | {r['query']} |")
+            expected = _format_expected(r)
+            lines.append(f"| {r['id']} | {pass_str} {status} | {score} | {r['category']} | {expected} | {r['query']} |")
     else:
-        lines.append("| ID | Pass | Category | Expected Tool | Query |")
-        lines.append("|----|------|----------|---------------|-------|")
+        lines.append("| ID | Pass | Category | Expected Tool(s) | Query |")
+        lines.append("|----|------|----------|------------------|-------|")
         for r in results:
             pass_str = f"{r['pass_count']}/{repeats}"
-            lines.append(f"| {r['id']} | {pass_str} | {r['category']} | `{r['expected_tool']}` | {r['query']} |")
+            expected = _format_expected(r)
+            lines.append(f"| {r['id']} | {pass_str} | {r['category']} | {expected} | {r['query']} |")
 
     failed = [r for r in results if not r.get("deepeval_passed", r["pass_count"] == repeats)]
     if failed:
@@ -368,7 +403,12 @@ def render_markdown(run_data: dict) -> str:
         lines.append("## Failures")
         lines.append("")
         for r in failed:
-            lines.append(f"- **{r['id']}**: expected `{r['expected_tool']}`, got `{', '.join(r['runs'][0]) if r['runs'] else 'none'}`")
+            expected = _format_expected(r)
+            got = ', '.join(r['runs'][0]) if r['runs'] and r['runs'][0] else 'none'
+            extra = ""
+            if r.get("tools_missing"):
+                extra = f" (missing: {', '.join(r['tools_missing'])})"
+            lines.append(f"- **{r['id']}**: expected {expected}, got `{got}`{extra}")
 
     lines.extend(_build_recommendations(results, repeats))
 
@@ -389,18 +429,19 @@ def _build_recommendations(results: list[dict], repeats: int) -> list[str]:
     # --- Pattern 1: list vs retrieve confusion ---
     list_retrieve_pairs = []
     for r in failed:
-        expected = r["expected_tool"]
+        expected_list = r.get("expected_tools") or [r.get("expected_tool", "")]
         got = r["runs"][0] if r["runs"] else []
-        if expected.endswith("_retrieve"):
-            base = expected.rsplit("_retrieve", 1)[0]
-            list_variant = f"{base}_list"
-            if list_variant in got:
-                list_retrieve_pairs.append((expected, list_variant))
-        elif expected.endswith("_list"):
-            base = expected.rsplit("_list", 1)[0]
-            retrieve_variant = f"{base}_retrieve"
-            if retrieve_variant in got:
-                list_retrieve_pairs.append((expected, retrieve_variant))
+        for expected in expected_list:
+            if expected.endswith("_retrieve"):
+                base = expected.rsplit("_retrieve", 1)[0]
+                list_variant = f"{base}_list"
+                if list_variant in got:
+                    list_retrieve_pairs.append((expected, list_variant))
+            elif expected.endswith("_list"):
+                base = expected.rsplit("_list", 1)[0]
+                retrieve_variant = f"{base}_retrieve"
+                if retrieve_variant in got:
+                    list_retrieve_pairs.append((expected, retrieve_variant))
 
     if list_retrieve_pairs:
         tools = sorted(set(f"`{a}` vs `{b}`" for a, b in list_retrieve_pairs))
@@ -420,12 +461,13 @@ def _build_recommendations(results: list[dict], repeats: int) -> list[str]:
     # --- Pattern 2: similar/duplicate tools ---
     confused_with = Counter()
     for r in failed:
-        expected = r["expected_tool"]
+        expected_set = set(r.get("expected_tools") or [r.get("expected_tool", "")])
         got = r["runs"][0] if r["runs"] else []
         for tool_name in got:
-            if tool_name != expected:
-                pair = tuple(sorted([expected, tool_name]))
-                confused_with[pair] += 1
+            if tool_name not in expected_set:
+                for expected in expected_set:
+                    pair = tuple(sorted([expected, tool_name]))
+                    confused_with[pair] += 1
 
     duplicate_pairs = [(pair, count) for pair, count in confused_with.items()
                        if count >= 2 and pair not in {tuple(sorted(p)) for p in list_retrieve_pairs}]
@@ -450,7 +492,8 @@ def _build_recommendations(results: list[dict], repeats: int) -> list[str]:
         lines.append("The model returned no tool call at all for these queries.")
         lines.append("")
         for r in no_tool:
-            lines.append(f"- **{r['id']}** (`{r['expected_tool']}`): \"{r['query']}\"")
+            expected = ", ".join(r.get("expected_tools") or [r.get("expected_tool", "?")])
+            lines.append(f"- **{r['id']}** (`{expected}`): \"{r['query']}\"")
         lines.append("")
         lines.append("**Recommendation:** These queries may be too vague or use everyday language "
                       "that doesn't match tool descriptions. Rephrase test queries or improve tool descriptions "
@@ -481,9 +524,10 @@ def _build_recommendations(results: list[dict], repeats: int) -> list[str]:
     tool_failures = defaultdict(int)
     tool_totals = defaultdict(int)
     for r in results:
-        tool_totals[r["expected_tool"]] += 1
+        key = ", ".join(r.get("expected_tools") or [r.get("expected_tool", "?")])
+        tool_totals[key] += 1
         if r["pass_count"] < repeats:
-            tool_failures[r["expected_tool"]] += 1
+            tool_failures[key] += 1
 
     worst = [(tool, tool_failures[tool], tool_totals[tool])
              for tool in tool_failures
