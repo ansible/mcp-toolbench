@@ -36,7 +36,7 @@ test_cases:
     query: >
       Set up a new tenant organization called 'Acme Corp'. Associate an
       execution environment, assign an instance group, and add a Galaxy
-      credential for pulling collections.
+      credential to the organization for pulling collections.
     expected_tools:
       - organizations_create
       - organizations_execution_environments_create
@@ -46,8 +46,8 @@ test_cases:
 
   - id: SCEN03-credential-audit
     query: >
-      I need to audit our credentials. Show me all credentials we have
-      and which job templates each one is attached to.
+      I need to audit our credentials. List all credentials, then for
+      each credential show which job templates have it attached.
     expected_tools:
       - credentials_list
       - job_templates_credentials_list
@@ -89,8 +89,7 @@ test_cases:
   - id: SCEN08-hub-content
     query: >
       Search for Ansible collections related to 'cloud' in our Galaxy hub,
-      and also show me what execution environment container images are
-      available.
+      and list the container image repositories available in automation hub.
     expected_tools:
       - ansible_content_collections_index
       - execution_environments_repositories_get_repositories
