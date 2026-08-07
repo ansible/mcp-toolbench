@@ -73,7 +73,7 @@ def cmd_run(args):
         teardown_server(process, config)
 
     if failed:
-        print(f"\nCI FAILED: one or more models below threshold {threshold:.1%}")
+        print(f"\nCI FAILED: one or more models below threshold {threshold:.1%}", file=sys.stderr)
         sys.exit(1)
 
 
