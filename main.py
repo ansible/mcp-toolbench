@@ -4,7 +4,7 @@ import sys
 
 from harness.config import list_evals, load_raw_config, load_eval_config
 from harness.lifecycle import setup_server, teardown_server
-from harness.runner import print_table, render_markdown, run, run_agentic, save_results
+from harness.runner import run, run_agentic
 
 
 def cmd_run(args):
@@ -32,7 +32,19 @@ def cmd_run(args):
                 print(f"{'='*60}\n")
 
             try:
-                if config.get("mode") == "agentic":
+                if config.get("mode") == "skills":
+                    from harness import skills_eval
+
+                    run_data = skills_eval.run_skills(
+                        config["tool_source"],
+                        config["test_cases"],
+                        model,
+                        repeats=repeats,
+                        max_turns=config.get("max_turns", 15),
+                        threshold=threshold,
+                        construction_only=args.construction_only,
+                    )
+                elif config.get("mode") == "agentic":
                     run_data = run_agentic(
                         config["tool_source"],
                         config["test_cases"],
@@ -55,16 +67,21 @@ def cmd_run(args):
                 print(f"Skipping {model}: {e}", file=sys.stderr)
                 continue
 
+            if config.get("mode") == "skills":
+                from harness import skills_eval as reporter
+            else:
+                from harness import runner as reporter
+
             if args.output == "json":
                 print(json.dumps(run_data, indent=2))
             elif args.output == "md":
-                print(render_markdown(run_data))
+                print(reporter.render_markdown(run_data))
             else:
-                print_table(run_data)
+                reporter.print_table(run_data)
 
             if args.output != "json":
                 save_fmt = args.save_format or ("md" if args.output == "md" else "json")
-                path = save_results(run_data, config["name"], fmt=save_fmt)
+                path = reporter.save_results(run_data, config["name"], fmt=save_fmt)
                 print(f"\nSaved results to {path}")
 
             if args.ci and run_data["accuracy"] < threshold:
@@ -333,6 +350,7 @@ def main():
     shared.add_argument("--ci", action="store_true", help="Exit with code 1 if below threshold")
     shared.add_argument("--output", choices=["table", "json", "md"], default="table", help="Output format")
     shared.add_argument("--save-format", choices=["json", "md"], default=None, help="Saved file format (defaults to match --output)")
+    shared.add_argument("--construction-only", action="store_true", help="Skills evals: run the static checks and skip the model")
 
     # run <eval>
     run_parser = subparsers.add_parser("run", parents=[shared], help="Run an eval")

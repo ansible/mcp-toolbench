@@ -18,12 +18,15 @@ queries through various LLMs, and score tool-calling accuracy using
 mcp-toolbench/
 ├── evals/
 │   ├── aap.yaml                 # AAP MCP server config + test cases
+│   ├── aap-skills.yaml          # SEP-2640 skills: construction + use
 │   └── dummy.yaml               # dummy in-process server for local testing
 ├── harness/
 │   ├── config.py                # YAML config loader with ${ENV_VAR} interpolation
 │   ├── providers.py             # multi-model provider abstraction + auto-detection
 │   ├── runner.py                # DeepEval scoring engine + result formatting
 │   ├── mcp_client.py            # MCP tool discovery
+│   ├── skills_client.py         # skill discovery + citation resolution
+│   ├── skills_eval.py           # skills construction/use checks
 │   ├── lifecycle.py             # server clone/setup/start/stop lifecycle
 │   └── generate_test_cases.py   # standalone test case generator
 ├── server/
@@ -158,6 +161,43 @@ include the expected tool. DeepEval metrics provide additional scoring
 (tool correctness, argument correctness, MCP use).
 
 Results are saved to `results/` as JSON or Markdown.
+
+## Skills evals (`mode: skills`)
+
+A server that serves [SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640)
+skills is asked two questions, in two passes over one connection.
+
+**Construction** is static — no model, no tokens, seconds to run. Per skill it
+checks that the skill is named in the server's `instructions`, that its
+frontmatter `name` matches its URI, that `allowed-tools` and
+`mcpToolDependencies` agree, that every tool it declares is actually served,
+that it declares no write tools, and that every file it cites resolves to a
+readable resource URI.
+
+```bash
+python main.py run aap-skills --construction-only
+```
+
+**Use** is agentic. The model gets the server's `instructions` as its system
+prompt and a `read_resource` tool, and nothing else — the same two things a
+conforming client would give it. Each case names the skill the query should
+pull in, and the checks are protocol events rather than judgements about prose:
+did it read the skill, did it read the files the skill cites, were the tools it
+called ones the skill declares, did it avoid writes, did it finish.
+
+```bash
+python main.py run aap-skills
+```
+
+The `read_resource` tool is the harness standing in for a client — no
+mainstream client implements SEP-2640 natively yet. Results say whether a
+correct client *would* reach the skills, not what any shipping product does.
+
+Citation resolution follows the rule the server states in its own
+`instructions`: take the skill's URI and replace the final `SKILL.md` segment
+with the path the skill gives. A citation that climbs above the skill root has
+no URI under the skill prefix, and is reported as a construction failure with
+the address that would have worked.
 
 ## Adding a new eval
 

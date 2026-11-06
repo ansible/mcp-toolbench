@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -208,44 +209,81 @@ def _extract_effective_tools(tool_calls) -> set[str]:
     return names
 
 
+@dataclass
+class LoopState:
+    """How a loop ended: a model that stopped is not one that ran out of turns."""
+
+    turns: int = 0
+    finished: bool = False
+
+
+async def run_turns(
+    client,
+    model: str,
+    query: str,
+    tools: list[dict],
+    max_turns: int,
+    system: str | None = None,
+    intercept=None,
+    verbose_prefix: str = "",
+) -> tuple[list, LoopState]:
+    """Drive one model↔server conversation: call → execute → feed back → repeat.
+
+    `intercept` is an async callable handed each tool call; returning a string
+    answers it locally, returning None sends it to the server. A tool that
+    raises is reported back to the model as that call's result, because a client
+    aborting on the first error would never reach the rest of a workflow.
+    """
+    messages = [{"role": "user", "content": query}]
+    calls_made = []
+    state = LoopState()
+
+    for turn in range(max_turns):
+        state.turns = turn + 1
+        calls, assistant_msg, is_done = call_model_messages(
+            model, messages, tools, system=system
+        )
+        messages.append(assistant_msg)
+
+        if is_done or not calls:
+            state.finished = True
+            if verbose_prefix:
+                print(f"{verbose_prefix}  turn {turn + 1}: done (no more tool calls)", flush=True)
+            break
+
+        if verbose_prefix:
+            print(f"{verbose_prefix}  turn {turn + 1}: {', '.join(c.name for c in calls)}", flush=True)
+
+        outputs = []
+        for call in calls:
+            calls_made.append(call)
+            try:
+                handled = await intercept(call) if intercept else None
+                outputs.append(
+                    handled
+                    if handled is not None
+                    else await execute_tool(client, call.name, call.input_parameters)
+                )
+            except Exception as exc:
+                outputs.append(f"ERROR: {exc}")
+
+        messages.extend(format_tool_results(model, calls, outputs))
+
+    return calls_made, state
+
+
 def _run_agentic_case(tool_source, query, model, max_turns, verbose_prefix=""):
     """Run one agentic loop: query → tool calls → execute → feed back → repeat."""
-    from harness.providers import ToolCallResult
-
-    all_tool_calls = []
 
     async def _loop():
         async with mcp_session(tool_source) as client:
-            raw_tools = await client.list_tools()
-            tools = normalize_tools(raw_tools)
-            messages = [{"role": "user", "content": query}]
+            tools = normalize_tools(await client.list_tools())
+            calls, _ = await run_turns(
+                client, model, query, tools, max_turns, verbose_prefix=verbose_prefix
+            )
+            return calls
 
-            for turn in range(max_turns):
-                tc_results, assistant_msg, is_done = call_model_messages(model, messages, tools)
-                messages.append(assistant_msg)
-
-                if is_done or not tc_results:
-                    if verbose_prefix:
-                        print(f"{verbose_prefix}  turn {turn + 1}: done (no more tool calls)", flush=True)
-                    break
-
-                tool_names = [tc.name for tc in tc_results]
-                if verbose_prefix:
-                    print(f"{verbose_prefix}  turn {turn + 1}: {', '.join(tool_names)}", flush=True)
-
-                exec_results = []
-                for tc in tc_results:
-                    result_text = await execute_tool(client, tc.name, tc.input_parameters)
-                    exec_results.append(result_text)
-                    all_tool_calls.append(tc)
-
-                result_msgs = format_tool_results(model, tc_results, exec_results)
-                messages.extend(result_msgs)
-
-            return len(messages)
-
-    asyncio.run(_loop())
-    return all_tool_calls
+    return asyncio.run(_loop())
 
 
 def run_agentic(
@@ -549,16 +587,14 @@ def _build_recommendations(results: list[dict], repeats: int) -> list[str]:
     return lines
 
 
-def save_results(run_data: dict, eval_name: str, fmt: str = "json") -> Path:
+def save_results(run_data: dict, eval_name: str, fmt: str = "json", render=None) -> Path:
     RESULTS_DIR.mkdir(exist_ok=True)
     safe_model = run_data["model"].replace(":", "-")
     timestamp = run_data["timestamp"].replace(":", "-")
-    base = f"{eval_name}_{safe_model}_{timestamp}"
+    path = RESULTS_DIR / f"{eval_name}_{safe_model}_{timestamp}.{fmt}"
 
     if fmt == "md":
-        path = RESULTS_DIR / f"{base}.md"
-        path.write_text(render_markdown(run_data))
+        path.write_text((render or render_markdown)(run_data))
     else:
-        path = RESULTS_DIR / f"{base}.json"
         path.write_text(json.dumps(run_data, indent=2))
     return path
