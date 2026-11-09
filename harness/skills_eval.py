@@ -21,11 +21,9 @@ client *would* reach the skills, not what any particular product does today.
 import asyncio
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
-from pathlib import Path
 
-from harness.mcp_client import mcp_session, normalize_tools
-from harness.runner import run_turns, save_results as _save
-from harness.skills_client import Snapshot, gather, readable
+from harness.runner import run_session
+from harness.skills_client import Skill, Snapshot, gather
 
 WRITE_SUFFIXES = ("_create", "_update", "_partial_update", "_destroy", "_delete")
 
@@ -54,119 +52,95 @@ class Check:
     detail: str = ""
 
 
+def _check(skill: str, name: str, ok: bool, when_ok: str, when_bad: str) -> Check:
+    return Check(skill=skill, check=name, passed=ok, detail=when_ok if ok else when_bad)
+
+
+class ResourceReader:
+    """Answers `read_resource` itself and records every URI the model asked for.
+
+    Under SEP-2640 this is the client's own capability, not a tool the server
+    offers, so it is intercepted rather than forwarded — and intercepting it is
+    what makes the model's reads observable.
+    """
+
+    def __init__(self):
+        self.uris: list[str] = []
+
+    async def __call__(self, client, call):
+        if call.name != READ_RESOURCE_TOOL["name"]:
+            return None
+        uri = call.input_parameters.get("uri", "")
+        self.uris.append(uri)
+        return (await client.read_resource(uri))[0].text
+
+
 def is_write_tool(name: str) -> bool:
     return name.endswith(WRITE_SUFFIXES)
 
 
-def check_construction(snapshot: Snapshot, reads: dict[str, str | None]) -> list[Check]:
+def check_construction(snapshot: Snapshot) -> list[Check]:
     """Everything that can be known about a skill without asking a model."""
-    checks: list[Check] = []
-
-    checks.append(
-        Check(
-            skill="(server)",
-            check="extension-advertised",
-            passed=snapshot.extension_advertised,
-            detail="io.modelcontextprotocol/skills in capabilities.extensions",
-        )
-    )
-    checks.append(
-        Check(
-            skill="(server)",
-            check="instructions-present",
-            passed=bool(snapshot.instructions.strip()),
-            detail=f"{len(snapshot.instructions)} chars",
-        )
-    )
+    checks = [
+        _check(
+            "(server)", "extension-advertised", snapshot.extension_advertised,
+            "io.modelcontextprotocol/skills in capabilities.extensions",
+            "io.modelcontextprotocol/skills absent from capabilities.extensions",
+        ),
+        _check(
+            "(server)", "instructions-present", bool(snapshot.instructions.strip()),
+            f"{len(snapshot.instructions)} chars", "empty",
+        ),
+    ]
 
     for skill in snapshot.skills:
         name = skill.name
-
-        checks.append(
-            Check(
-                skill=name,
-                check="advertised",
-                passed=skill.uri in snapshot.instructions,
-                detail="named in the instructions pointer",
-            )
-        )
-
         fm_name = skill.frontmatter.get("name")
-        checks.append(
-            Check(
-                skill=name,
-                check="frontmatter-name",
-                passed=fm_name == name,
-                detail=f"frontmatter name={fm_name!r}, directory={name!r}",
-            )
-        )
+        missing = sorted(skill.declared_tools - snapshot.tool_names)
+        writes = sorted(t for t in skill.declared_tools if is_write_tool(t))
+        unresolved = [
+            f"{c.raw} ({c.note})" if c.uri is None else f"{c.raw} -> {c.uri}: unreadable"
+            for c in skill.citations
+            if c.uri is None or snapshot.reads.get(c.uri) is not None
+        ]
 
-        agree = skill.allowed_tools == skill.dependency_tools
-        disagreement = skill.allowed_tools ^ skill.dependency_tools
-        checks.append(
-            Check(
-                skill=name,
-                check="declarations-agree",
-                passed=agree,
-                detail=(
-                    "allowed-tools matches mcpToolDependencies"
-                    if agree
-                    else f"differ by {sorted(disagreement)}"
-                ),
-            )
-        )
-
-        missing_tools = sorted(skill.declared_tools - snapshot.tool_names)
-        checks.append(
-            Check(
-                skill=name,
-                check="declared-tools-exist",
-                passed=not missing_tools,
-                detail=(
-                    f"{len(skill.declared_tools)} declared, all served"
-                    if not missing_tools
-                    else f"not served by this endpoint: {missing_tools}"
-                ),
-            )
-        )
-
-        declared_writes = sorted(t for t in skill.declared_tools if is_write_tool(t))
-        checks.append(
-            Check(
-                skill=name,
-                check="declares-no-writes",
-                passed=not declared_writes,
-                detail=(
-                    "read-only declaration"
-                    if not declared_writes
-                    else f"declares write tools: {declared_writes}"
-                ),
-            )
-        )
-
-        failures = []
-        for citation in skill.citations:
-            if citation.uri is None:
-                failures.append(f"{citation.raw} ({citation.note})")
-            elif reads.get(citation.uri) is not None:
-                failures.append(f"{citation.raw} -> {citation.uri}: unreadable")
-        checks.append(
-            Check(
-                skill=name,
-                check="citations-resolve",
-                passed=not failures,
-                detail=(
-                    f"{len(skill.citations)} citations, all readable"
-                    if not failures
-                    else "; ".join(failures)
-                ),
-            )
-        )
+        checks += [
+            _check(
+                name, "advertised", skill.uri in snapshot.instructions,
+                "named in the instructions pointer",
+                "absent from the instructions pointer",
+            ),
+            _check(
+                name, "frontmatter-name", fm_name == name,
+                f"frontmatter name={fm_name!r}",
+                f"frontmatter name={fm_name!r}, directory={name!r}",
+            ),
+            _check(
+                name, "declarations-agree",
+                skill.allowed_tools == skill.dependency_tools,
+                "allowed-tools matches mcpToolDependencies",
+                f"differ by {sorted(skill.allowed_tools ^ skill.dependency_tools)}",
+            ),
+            _check(
+                name, "declared-tools-exist", not missing,
+                f"{len(skill.declared_tools)} declared, all served",
+                f"not served by this endpoint: {missing}",
+            ),
+            _check(
+                name, "declares-no-writes", not writes,
+                "read-only declaration", f"declares write tools: {writes}",
+            ),
+            _check(
+                name, "citations-resolve", not unresolved,
+                f"{len(skill.citations)} citations, all readable",
+                "; ".join(unresolved),
+            ),
+        ]
 
     return checks
 
 
-def _expected_reads(snapshot: Snapshot, case: dict, reads: dict) -> list[str]:
+def expected_reads(skill: Skill, case: dict, reads: dict) -> list[str]:
     """What the model must read: the skill, plus whatever the case pins down.
 
     Defaults to every citation that both resolves and reads, so a skill is held
@@ -175,7 +149,6 @@ def _expected_reads(snapshot: Snapshot, case: dict, reads: dict) -> list[str]:
     narrow this with `expected_resources` when only part of a skill's procedure
     applies to the query.
     """
-    skill = next((s for s in snapshot.skills if s.name == case["skill"]), None)
     if skill is None:
         return []
     if "expected_resources" in case:
@@ -185,78 +158,25 @@ def _expected_reads(snapshot: Snapshot, case: dict, reads: dict) -> list[str]:
     ]
 
 
-def _run_use_case(transport, snapshot, case, model, max_turns, prefix=""):
-    """One agentic run with `instructions` as the system prompt.
-
-    `read_resource` is intercepted rather than forwarded: it is the client's own
-    capability under SEP-2640, not a tool the server offers, and intercepting it
-    is what records which URIs the model actually reached for.
-    """
-    reads: list[str] = []
-
-    async def _loop():
-        async with mcp_session(transport) as client:
-            tools = normalize_tools(await client.list_tools()) + [READ_RESOURCE_TOOL]
-
-            async def intercept(call):
-                if call.name != "read_resource":
-                    return None
-                uri = call.input_parameters.get("uri", "")
-                reads.append(uri)
-                return (await client.read_resource(uri))[0].text
-
-            return await run_turns(
-                client,
-                model,
-                case["query"],
-                tools,
-                max_turns,
-                system=snapshot.instructions,
-                intercept=intercept,
-                verbose_prefix=prefix,
-            )
-
-    tool_calls, state = asyncio.run(_loop())
-    return tool_calls, reads, state
-
-
-def check_use(snapshot, case, tool_calls, reads, state, readable_uris) -> list[Check]:
+def check_use(skill, case, called, reads, state, expected) -> list[Check]:
     name = case["skill"]
-    skill = next((s for s in snapshot.skills if s.name == name), None)
-    called = [c.name for c in tool_calls if c.name != "read_resource"]
-    expected = _expected_reads(snapshot, case, readable_uris)
     skill_uri = skill.uri if skill else ""
+    declared = skill.declared_tools if skill else set()
+    unread = [uri for uri in expected if uri not in reads]
+    undeclared = sorted({t for t in called if t not in declared})
+    writes = sorted({t for t in called if is_write_tool(t)})
 
     checks = [
-        Check(
-            skill=name,
-            check="reached",
-            passed=skill_uri in reads,
-            detail=(
-                f"read {skill_uri}"
-                if skill_uri in reads
-                else f"never read the skill; read {reads or 'nothing'}"
-            ),
-        )
-    ]
-
-    unread = [uri for uri in expected if uri not in reads]
-    checks.append(
-        Check(
-            skill=name,
-            check="followed-citations",
-            passed=not unread,
-            detail=(
-                f"read all {len(expected)} expected resources"
-                if not unread
-                else f"did not read: {unread}"
-            ),
-        )
-    )
-
-    declared = skill.declared_tools if skill else set()
-    undeclared = sorted({t for t in called if t not in declared})
-    checks.append(
+        _check(
+            name, "reached", skill_uri in reads,
+            f"read {skill_uri}",
+            f"never read the skill; read {reads or 'nothing'}",
+        ),
+        _check(
+            name, "followed-citations", not unread,
+            f"read all {len(expected)} expected resources",
+            f"did not read: {unread}",
+        ),
         Check(
             skill=name,
             check="tools-declared",
@@ -268,34 +188,24 @@ def check_use(snapshot, case, tool_calls, reads, state, readable_uris) -> list[C
                 if not undeclared
                 else f"called but not declared: {undeclared}"
             ),
-        )
-    )
-
-    writes = sorted({t for t in called if is_write_tool(t)})
-    checks.append(
-        Check(
-            skill=name,
-            check="no-writes",
-            passed=not writes,
-            detail="no write tools called" if not writes else f"wrote: {writes}",
-        )
-    )
-
-    completed = state.finished and bool(called)
-    checks.append(
+        ),
+        _check(
+            name, "no-writes", not writes,
+            "no write tools called", f"wrote: {writes}",
+        ),
         Check(
             skill=name,
             check="completed",
-            passed=completed,
+            passed=state.finished and bool(called),
             detail=(
                 f"finished in {state.turns} turns"
-                if completed
+                if state.finished and called
                 else "stopped without calling a tool — asked the operator to confirm scope?"
                 if state.finished
                 else f"exhausted {state.turns} turns"
             ),
-        )
-    )
+        ),
+    ]
 
     return checks
 
@@ -310,14 +220,9 @@ def run_skills(
     construction_only: bool = False,
 ) -> dict:
     snapshot = asyncio.run(gather(transport))
+    by_name = {s.name: s for s in snapshot.skills}
 
-    cited = sorted(
-        {c.uri for s in snapshot.skills for c in s.citations if c.uri}
-        | {s.uri for s in snapshot.skills}
-    )
-    reads = asyncio.run(readable(transport, cited))
-
-    construction = check_construction(snapshot, reads)
+    construction = check_construction(snapshot)
     print(f"\nConstruction: {len(snapshot.skills)} skills, {len(construction)} checks")
     for check in construction:
         if not check.passed:
@@ -327,24 +232,38 @@ def run_skills(
     if not construction_only:
         for i, case in enumerate(test_cases, 1):
             print(f"\n  [{i}/{len(test_cases)}] {case['id']} ({case['skill']})", flush=True)
+            skill = by_name.get(case["skill"])
+            expected = expected_reads(skill, case, snapshot.reads)
+
             for r in range(repeats):
                 prefix = f"    [repeat {r + 1}/{repeats}]"
                 print(prefix, flush=True)
-                tool_calls, reads_seen, state = _run_use_case(
-                    transport, snapshot, case, model, max_turns, prefix
+
+                reader = ResourceReader()
+                tool_calls, state = run_session(
+                    transport, case["query"], model, max_turns,
+                    extra_tools=[READ_RESOURCE_TOOL],
+                    system=snapshot.instructions,
+                    intercept=reader,
+                    verbose_prefix=prefix,
                 )
-                checks = check_use(snapshot, case, tool_calls, reads_seen, state, reads)
+                called = [
+                    c.name for c in tool_calls if c.name != READ_RESOURCE_TOOL["name"]
+                ]
+
+                checks = check_use(skill, case, called, reader.uris, state, expected)
                 for check in checks:
                     mark = "✓" if check.passed else "✗"
                     print(f"{prefix}  {mark} {check.check} — {check.detail}", flush=True)
+
                 use.append(
                     {
                         "id": case["id"],
                         "skill": case["skill"],
                         "repeat": r + 1,
                         "query": case["query"],
-                        "tools_called": [c.name for c in tool_calls if c.name != "read_resource"],
-                        "resources_read": reads_seen,
+                        "tools_called": called,
+                        "resources_read": reader.uris,
                         "turns": state.turns,
                         "checks": [asdict(c) for c in checks],
                     }
@@ -372,27 +291,23 @@ def run_skills(
     }
 
 
-def _group(checks: list[dict]) -> dict[str, list[dict]]:
-    grouped: dict[str, list[dict]] = {}
-    for check in checks:
-        grouped.setdefault(check["skill"], []).append(check)
-    return grouped
+def _use_rows(run_data: dict):
+    for entry in run_data["use"]:
+        for check in entry["checks"]:
+            yield f"{entry['id']}#{entry['repeat']}", check
 
 
 def print_table(run_data: dict) -> None:
     print(f"\n{'SKILL':<34}{'CHECK':<24}{'':<6}DETAIL")
-    for skill, checks in _group(run_data["construction"]).items():
-        for check in checks:
-            mark = "PASS" if check["passed"] else "FAIL"
-            print(f"{skill:<34}{check['check']:<24}{mark:<6}{check['detail']}")
+    for check in run_data["construction"]:
+        mark = "PASS" if check["passed"] else "FAIL"
+        print(f"{check['skill']:<34}{check['check']:<24}{mark:<6}{check['detail']}")
 
     if run_data["use"]:
         print()
-        for entry in run_data["use"]:
-            for check in entry["checks"]:
-                mark = "PASS" if check["passed"] else "FAIL"
-                label = f"{entry['id']}#{entry['repeat']}"
-                print(f"{label:<34}{check['check']:<24}{mark:<6}{check['detail']}")
+        for label, check in _use_rows(run_data):
+            mark = "PASS" if check["passed"] else "FAIL"
+            print(f"{label:<34}{check['check']:<24}{mark:<6}{check['detail']}")
 
     print(f"\nSkills: {run_data['skill_count']}   Tools: {run_data['tool_count']}")
     print(f"Construction: {run_data['construction_accuracy']:.1%}")
@@ -433,13 +348,9 @@ def render_markdown(run_data: dict) -> str:
             "| Case | Check | Result | Detail |",
             "|------|-------|--------|--------|",
         ]
-        for entry in run_data["use"]:
-            for check in entry["checks"]:
-                mark = "PASS" if check["passed"] else "**FAIL**"
-                label = f"{entry['id']}#{entry['repeat']}"
-                lines.append(
-                    f"| {label} | {check['check']} | {mark} | {check['detail']} |"
-                )
+        for label, check in _use_rows(run_data):
+            mark = "PASS" if check["passed"] else "**FAIL**"
+            lines.append(f"| {label} | {check['check']} | {mark} | {check['detail']} |")
 
     failures = [c for c in run_data["construction"] if not c["passed"]]
     if failures:
@@ -449,7 +360,3 @@ def render_markdown(run_data: dict) -> str:
 
     lines.append("")
     return "\n".join(lines)
-
-
-def save_results(run_data: dict, eval_name: str, fmt: str = "json") -> Path:
-    return _save(run_data, eval_name, fmt=fmt, render=render_markdown)

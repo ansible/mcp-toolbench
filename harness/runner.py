@@ -229,8 +229,8 @@ async def run_turns(
 ) -> tuple[list, LoopState]:
     """Drive one model↔server conversation: call → execute → feed back → repeat.
 
-    `intercept` is an async callable handed each tool call; returning a string
-    answers it locally, returning None sends it to the server. A tool that
+    `intercept` is an async callable handed `(client, call)`; returning a string
+    answers that call locally, returning None sends it to the server. A tool that
     raises is reported back to the model as that call's result, because a client
     aborting on the first error would never reach the rest of a workflow.
     """
@@ -258,7 +258,7 @@ async def run_turns(
         for call in calls:
             calls_made.append(call)
             try:
-                handled = await intercept(call) if intercept else None
+                handled = await intercept(client, call) if intercept else None
                 outputs.append(
                     handled
                     if handled is not None
@@ -272,18 +272,33 @@ async def run_turns(
     return calls_made, state
 
 
-def _run_agentic_case(tool_source, query, model, max_turns, verbose_prefix=""):
-    """Run one agentic loop: query → tool calls → execute → feed back → repeat."""
+def run_session(
+    tool_source,
+    query: str,
+    model: str,
+    max_turns: int,
+    extra_tools: list[dict] | None = None,
+    system: str | None = None,
+    intercept=None,
+    verbose_prefix: str = "",
+) -> tuple[list, LoopState]:
+    """Open one MCP session and drive a model conversation through it."""
 
     async def _loop():
         async with mcp_session(tool_source) as client:
-            tools = normalize_tools(await client.list_tools())
-            calls, _ = await run_turns(
-                client, model, query, tools, max_turns, verbose_prefix=verbose_prefix
+            tools = normalize_tools(await client.list_tools()) + (extra_tools or [])
+            return await run_turns(
+                client, model, query, tools, max_turns,
+                system=system, intercept=intercept, verbose_prefix=verbose_prefix,
             )
-            return calls
 
     return asyncio.run(_loop())
+
+
+def _run_agentic_case(tool_source, query, model, max_turns, verbose_prefix=""):
+    """Run one agentic loop: query → tool calls → execute → feed back → repeat."""
+    calls, _ = run_session(tool_source, query, model, max_turns, verbose_prefix=verbose_prefix)
+    return calls
 
 
 def run_agentic(

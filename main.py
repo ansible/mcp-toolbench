@@ -4,7 +4,7 @@ import sys
 
 from harness.config import list_evals, load_raw_config, load_eval_config
 from harness.lifecycle import setup_server, teardown_server
-from harness.runner import run, run_agentic
+from harness.runner import run, run_agentic, save_results
 
 
 def cmd_run(args):
@@ -31,16 +31,19 @@ def cmd_run(args):
                 print(f"Server: {config['name']}  |  Model: {model}")
                 print(f"{'='*60}\n")
 
-            try:
-                if config.get("mode") == "skills":
-                    from harness import skills_eval
+            if config["mode"] == "skills":
+                from harness import skills_eval as reporter
+            else:
+                from harness import runner as reporter
 
-                    run_data = skills_eval.run_skills(
+            try:
+                if config["mode"] == "skills":
+                    run_data = reporter.run_skills(
                         config["tool_source"],
                         config["test_cases"],
                         model,
                         repeats=repeats,
-                        max_turns=config.get("max_turns", 15),
+                        max_turns=config["max_turns"],
                         threshold=threshold,
                         construction_only=args.construction_only,
                     )
@@ -67,11 +70,6 @@ def cmd_run(args):
                 print(f"Skipping {model}: {e}", file=sys.stderr)
                 continue
 
-            if config.get("mode") == "skills":
-                from harness import skills_eval as reporter
-            else:
-                from harness import runner as reporter
-
             if args.output == "json":
                 print(json.dumps(run_data, indent=2))
             elif args.output == "md":
@@ -81,7 +79,10 @@ def cmd_run(args):
 
             if args.output != "json":
                 save_fmt = args.save_format or ("md" if args.output == "md" else "json")
-                path = reporter.save_results(run_data, config["name"], fmt=save_fmt)
+                path = save_results(
+                    run_data, config["name"], fmt=save_fmt,
+                    render=reporter.render_markdown,
+                )
                 print(f"\nSaved results to {path}")
 
             if args.ci and run_data["accuracy"] < threshold:
