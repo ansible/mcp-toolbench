@@ -22,7 +22,10 @@ models:
 # measuring variance rather than conformance.
 repeats: 1
 
-# Construction is a conformance claim, so every check has to pass.
+# 1.0, not the 0.7 the other evals use, because this gates construction only —
+# a deterministic conformance claim with no variance to tolerate. At 0.7 six of
+# twenty checks could fail silently. The use checks are reported but not gated,
+# so model flake cannot turn CI red.
 threshold: 1.0
 
 test_cases:

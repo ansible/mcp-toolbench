@@ -262,8 +262,10 @@ def run_skills(
     construction_passed = sum(1 for c in construction if c.passed)
     use_checks = [c for entry in use for c in entry["checks"]]
     use_passed = sum(1 for c in use_checks if c["passed"])
-    total = len(construction) + len(use_checks)
 
+    # `accuracy` is the construction rate alone, because that is what `--ci`
+    # gates: it is deterministic, so a threshold on it means something. Use is
+    # a sample of model behaviour and is reported beside it, ungated.
     return {
         "model": model,
         "mode": "skills",
@@ -274,10 +276,9 @@ def run_skills(
         "skill_count": len(snapshot.skills),
         "tool_count": len(snapshot.tool_names),
         "construction": [asdict(c) for c in construction],
-        "construction_accuracy": construction_passed / len(construction) if construction else 0.0,
+        "accuracy": construction_passed / len(construction) if construction else 0.0,
         "use": use,
         "use_accuracy": use_passed / len(use_checks) if use_checks else 0.0,
-        "accuracy": (construction_passed + use_passed) / total if total else 0.0,
     }
 
 
@@ -300,10 +301,9 @@ def print_table(run_data: dict) -> None:
             print(f"{label:<34}{check['check']:<24}{mark:<6}{check['detail']}")
 
     print(f"\nSkills: {run_data['skill_count']}   Tools: {run_data['tool_count']}")
-    print(f"Construction: {run_data['construction_accuracy']:.1%}")
+    print(f"Construction: {run_data['accuracy']:.1%}  (threshold {run_data['threshold']:.0%})")
     if run_data["use"]:
-        print(f"Use:          {run_data['use_accuracy']:.1%}")
-    print(f"Overall:      {run_data['accuracy']:.1%}")
+        print(f"Use:          {run_data['use_accuracy']:.1%}  (not gated)")
 
 
 def render_markdown(run_data: dict) -> str:
@@ -314,9 +314,8 @@ def render_markdown(run_data: dict) -> str:
         "|--------|-------|",
         f"| Skills | {run_data['skill_count']} |",
         f"| Tools | {run_data['tool_count']} |",
-        f"| Construction | {run_data['construction_accuracy']:.1%} |",
-        f"| Use | {run_data['use_accuracy']:.1%} |",
-        f"| Overall | {run_data['accuracy']:.1%} |",
+        f"| Construction | {run_data['accuracy']:.1%} (threshold {run_data['threshold']:.0%}) |",
+        f"| Use | {run_data['use_accuracy']:.1%} (not gated) |",
         f"| Timestamp | {run_data['timestamp']} |",
         "",
         "## Construction",
