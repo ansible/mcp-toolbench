@@ -1,14 +1,8 @@
 """Reads an MCP server's skills the way a client has to: through `instructions`.
 
-SEP-2640 serves a skill's `SKILL.md` and, under the same prefix, any supporting
-file it cites. `resources/list` advertises only the `SKILL.md`, so a supporting
-file is reachable but invisible — a client finds it only because the skill's own
-text names it. That makes citation resolution, not listing, the thing to check.
-
-The server states the resolution rule in its `instructions`: take the skill's
-URI and replace the final `SKILL.md` segment with the path the skill gives you.
-`resolve_citation` applies exactly that rule, so an unresolvable citation here is
-one a conforming client could not resolve either.
+`resources/list` advertises only each skill's `SKILL.md`, so the supporting files
+it cites are reachable but invisible — which makes citation resolution, not
+listing, the thing to check.
 """
 
 import posixpath
@@ -19,7 +13,6 @@ import yaml
 
 from harness.mcp_client import mcp_session
 
-# `[text](target)` with a target that is not a URL, and bare `.md` code spans.
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 MD_SPAN = re.compile(r"`([^`\n]*\.md)`")
 
@@ -28,8 +21,6 @@ SCHEME = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
 
 @dataclass
 class Citation:
-    """A supporting file a skill's body points at."""
-
     raw: str
     uri: str | None = None
     note: str = ""
@@ -62,7 +53,7 @@ class Snapshot:
 
 
 def split_frontmatter(text: str) -> tuple[dict, str]:
-    """Return (frontmatter, body). A skill without frontmatter yields ({}, text)."""
+    """No frontmatter yields ({}, text)."""
     if not text.startswith("---"):
         return {}, text
     parts = text.split("---", 2)
@@ -76,11 +67,9 @@ def split_frontmatter(text: str) -> tuple[dict, str]:
 
 
 def declared_tools(frontmatter: dict) -> tuple[set[str], set[str]]:
-    """Pull the two tool declarations a skill carries.
-
-    `allowed-tools` is the agentskills.io field, a whitespace-separated string;
-    `mcpToolDependencies` is the Red Hat field, a list of per-server lists. They
-    are meant to say the same thing, and a check below asserts they do.
+    """Two competing vocabularies: `allowed-tools` (agentskills.io, whitespace
+    string) and `mcpToolDependencies` (Red Hat, per-server lists). A check
+    asserts they agree.
     """
     raw_allowed = frontmatter.get("allowed-tools") or ""
     allowed = set(raw_allowed.split()) if isinstance(raw_allowed, str) else set()
@@ -94,12 +83,10 @@ def declared_tools(frontmatter: dict) -> tuple[set[str], set[str]]:
 
 
 def extract_citations(body: str) -> list[str]:
-    """Find the supporting files a skill's body tells the reader to open.
+    """Supporting files a skill tells the reader to open.
 
-    Markdown links count whenever the target is not a URL. Code spans count only
-    when they name a `.md` file, excluding `SKILL.md` (a skill referring to its
-    own kind) and anything with a `<placeholder>`, which is an output path the
-    skill writes rather than one it reads.
+    Skips `SKILL.md` (a skill naming its own kind) and `<placeholder>` paths,
+    which are files the skill writes rather than reads.
     """
     found: list[str] = []
 
@@ -119,15 +106,14 @@ def extract_citations(body: str) -> list[str]:
 def resolve_citation(skill_uri: str, raw: str, served: set[str] = frozenset()) -> Citation:
     """Apply the server's documented rule: swap `SKILL.md` for the cited path.
 
-    A path that climbs out of the skill's own directory has no URI under the
-    skill prefix. When the server advertises that same file somewhere else, the
-    note names the address that would have worked, because that is the fix.
+    A path climbing out of the skill's directory has no URI under the skill
+    prefix; if the server serves that file elsewhere, the note names it.
     """
     if SCHEME.match(raw):
         return Citation(raw=raw, uri=raw)
 
-    # `skill://aap/<name>/SKILL.md` — `aap` is the authority, not a path segment,
-    # so climbing past `<name>` leaves the URI space rather than landing on `aap/`.
+    # In `skill://aap/<name>/SKILL.md`, `aap` is the authority, not a path
+    # segment, so climbing past `<name>` leaves the URI space entirely.
     scheme, _, rest = skill_uri.partition("://")
     authority, _, path = rest.partition("/")
     joined = posixpath.normpath(posixpath.join(posixpath.dirname(path), raw))
@@ -157,7 +143,7 @@ async def gather(transport) -> Snapshot:
             if u.startswith("skill://") and u.endswith("/SKILL.md")
         )
 
-        # A skill's own SKILL.md reads here, so it needs no second attempt below.
+        # SKILL.md reads here, so it needs no second attempt below.
         reads: dict[str, str | None] = {}
         skills = []
         for uri in skill_uris:

@@ -229,10 +229,10 @@ async def run_turns(
 ) -> tuple[list, LoopState]:
     """Drive one model↔server conversation: call → execute → feed back → repeat.
 
-    `intercept` is an async callable handed `(client, call)`; returning a string
-    answers that call locally, returning None sends it to the server. A tool that
-    raises is reported back to the model as that call's result, because a client
-    aborting on the first error would never reach the rest of a workflow.
+    `intercept(client, call)` returns a string to answer that call locally, or
+    None to send it to the server. A raising tool is reported back to the model
+    as its result: a client aborting on the first error would never reach the
+    rest of a workflow.
     """
     messages = [{"role": "user", "content": query}]
     calls_made = []

@@ -1,17 +1,10 @@
 name: aap-skills
 
-# Asks two questions about the skills a server serves over SEP-2640:
-# are they correctly constructed, and does a model actually use them?
+# Are the skills a server serves over SEP-2640 correctly constructed, and does
+# a model actually use them? Needs the server started with SKILLS_ENABLED=true.
 #
-# Construction is static — no model, no tokens — and runs on its own with
+# Construction is static — no model, no tokens:
 #   python main.py run aap-skills --construction-only
-#
-# Use is agentic: the server's `instructions` become the system prompt and the
-# model gets a `read_resource` tool, which is what a conforming client would
-# give it. Every check is a protocol event, never a judgement about prose.
-#
-# The server must be started with skills enabled:
-#   SKILLS_ENABLED=true
 
 transport: http
 endpoint: ${MCP_ENDPOINT:-http://localhost:3000/mcp}
@@ -25,8 +18,8 @@ max_turns: 15
 models:
   - anthropic:claude-sonnet-4-6
 
-# One repeat by default: each case is a full agentic workflow, not a single
-# tool pick. Raise it when measuring variance rather than conformance.
+# Each case is a full agentic workflow, not a single tool pick. Raise this when
+# measuring variance rather than conformance.
 repeats: 1
 
 # Construction is a conformance claim, so every check has to pass.
@@ -47,6 +40,5 @@ test_cases:
       do their RBAC grants allow?
     category: workflow
 
-# `aap-skill-creator` has no case here: it is an authoring aid, not an
-# operational skill an end user reaches for. Construction still covers it,
-# because the server serves it either way.
+# `aap-skill-creator` has no case: it is an authoring aid, not a skill an end
+# user reaches for. Construction still covers it.

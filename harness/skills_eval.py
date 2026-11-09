@@ -1,21 +1,14 @@
 """Checks that a server's skills are correctly constructed, and that a model uses them.
 
-Two passes over one server:
+**Construction** is static — no model, no tokens: could each skill be followed
+at all? **Use** is agentic, giving the model only what a conforming client would
+(the server's `instructions` as system prompt, plus `read_resource`) and checking
+what it does against the skill's own declarations. Every check is a protocol
+event, never a judgement about prose.
 
-**Construction** is static — no model, no tokens, seconds to run. It asks whether
-each skill could be followed at all: is it advertised where a client will look,
-do its tool declarations name tools that exist, does every file it cites resolve
-to a readable URI.
-
-**Use** is agentic. The model gets the server's `instructions` as its system
-prompt and a `read_resource` tool, and nothing else — the same two things a
-conforming client would give it. What it does with them is then checked against
-the skill's own declarations rather than against a rubric, so every result here
-is a protocol event, not a judgement about prose.
-
-Note that the `read_resource` tool is us standing in for a client: no mainstream
-client implements SEP-2640 natively yet. These results say whether a correct
-client *would* reach the skills, not what any particular product does today.
+`read_resource` is us standing in for a client, since none implements SEP-2640
+natively yet: results say whether a correct client *would* reach the skills, not
+what any shipping product does.
 """
 
 import asyncio
@@ -59,9 +52,8 @@ def _check(skill: str, name: str, ok: bool, when_ok: str, when_bad: str) -> Chec
 class ResourceReader:
     """Answers `read_resource` itself and records every URI the model asked for.
 
-    Under SEP-2640 this is the client's own capability, not a tool the server
-    offers, so it is intercepted rather than forwarded — and intercepting it is
-    what makes the model's reads observable.
+    It is the client's own capability under SEP-2640, not a tool the server
+    offers, so it is intercepted rather than forwarded.
     """
 
     def __init__(self):
@@ -141,13 +133,11 @@ def check_construction(snapshot: Snapshot) -> list[Check]:
 
 
 def expected_reads(skill: Skill, case: dict, reads: dict) -> list[str]:
-    """What the model must read: the skill, plus whatever the case pins down.
+    """The skill, plus every citation that resolves and reads.
 
-    Defaults to every citation that both resolves and reads, so a skill is held
-    to its own text. A citation that does neither is already a construction
-    failure, and counting it here too would charge one defect twice. A case can
-    narrow this with `expected_resources` when only part of a skill's procedure
-    applies to the query.
+    A broken citation is already a construction failure; counting it here too
+    would charge one defect twice. `expected_resources` narrows this when only
+    part of a skill's procedure applies to the query.
     """
     if skill is None:
         return []
