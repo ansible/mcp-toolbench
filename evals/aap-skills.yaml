@@ -1,0 +1,47 @@
+name: aap-skills
+
+# Are the skills a server serves over SEP-2640 correctly constructed, and does
+# a model actually use them? Needs the server started with SKILLS_ENABLED=true.
+#
+# Construction is static — no model, no tokens:
+#   python main.py run aap-skills --construction-only
+
+transport: http
+endpoint: ${MCP_ENDPOINT:-http://localhost:3000/mcp}
+ssl_verify: false
+headers:
+  Authorization: "Bearer ${AAP_TOKEN}"
+
+mode: skills
+max_turns: 15
+
+models:
+  - anthropic:claude-sonnet-4-6
+
+# Each case is a full agentic workflow, not a single tool pick. Raise this when
+# measuring variance rather than conformance.
+repeats: 1
+
+# 1.0, not the 0.7 the other evals use, because this gates construction only —
+# a deterministic conformance claim with no variance to tolerate. At 0.7 six of
+# twenty checks could fail silently. The use checks are reported but not gated,
+# so model flake cannot turn CI red.
+threshold: 1.0
+
+test_cases:
+  - id: SK01-health-check
+    skill: aap-platform-health-check
+    query: >
+      Is my AAP platform healthy? Run the full diagnostics and give me the
+      report.
+    category: workflow
+
+  - id: SK02-access-review
+    skill: aap-effective-access-review
+    query: >
+      What effective access does the user 'admin' have, and which operations
+      do their RBAC grants allow?
+    category: workflow
+
+# `aap-skill-creator` has no case: it is an authoring aid, not a skill an end
+# user reaches for. Construction still covers it.

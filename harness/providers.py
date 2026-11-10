@@ -147,15 +147,17 @@ def _call_anthropic(model_name: str, query: str, tools: list[dict]) -> list[Tool
 
 
 def _call_anthropic_messages(
-    model_name: str, messages: list[dict], tools: list[dict]
+    model_name: str, messages: list[dict], tools: list[dict], system: str | None = None
 ) -> tuple[list[ToolCallResult], dict, bool]:
     client = _get_anthropic_client()
     anthropic_tools = _to_anthropic_tools(tools)
+    kwargs = {"system": system} if system else {}
     response = client.messages.create(
         model=model_name,
         max_tokens=4096,
         tools=anthropic_tools,
         messages=messages,
+        **kwargs,
     )
 
     tool_calls = [
@@ -200,7 +202,7 @@ def _call_openai(model_name: str, query: str, tools: list[dict]) -> list[ToolCal
 
 
 def _call_openai_messages(
-    model_name: str, messages: list[dict], tools: list[dict]
+    model_name: str, messages: list[dict], tools: list[dict], system: str | None = None
 ) -> tuple[list[ToolCallResult], dict, bool]:
     import json
 
@@ -208,6 +210,8 @@ def _call_openai_messages(
 
     client = OpenAI()
     openai_tools = _to_openai_tools(tools)
+    if system:
+        messages = [{"role": "system", "content": system}] + messages
     response = client.chat.completions.create(
         model=model_name,
         messages=messages,
@@ -267,14 +271,14 @@ def call_model(model: str, query: str, tools: list[dict]) -> list[ToolCallResult
 
 
 def call_model_messages(
-    model: str, messages: list[dict], tools: list[dict]
+    model: str, messages: list[dict], tools: list[dict], system: str | None = None
 ) -> tuple[list[ToolCallResult], dict, bool]:
     """Multi-turn variant: takes full message history, returns (tool_calls, assistant_msg, is_done)."""
     provider, model_name = parse_model_string(model)
     call_fn = _PROVIDERS_MESSAGES.get(provider)
     if not call_fn:
         raise ValueError(f"Agentic mode not supported for provider: {provider!r}. Use: {', '.join(_PROVIDERS_MESSAGES)}")
-    return call_fn(model_name, messages, tools)
+    return call_fn(model_name, messages, tools, system)
 
 
 def format_tool_results(
