@@ -23,6 +23,8 @@ def cmd_run(args):
 
     process = setup_server(config)
     failed = False
+    ran = []
+    errored = []
 
     try:
         for model in models:
@@ -67,8 +69,15 @@ def cmd_run(args):
                         judge_model=args.judge_model,
                     )
             except Exception as e:
+                # A model that never produced a result is a failure, not a
+                # pass. Record it so the exit code reflects it: `continue`
+                # skips the threshold check below, so without this a crashed
+                # run exits 0 with empty stdout.
                 print(f"Skipping {model}: {e}", file=sys.stderr)
+                errored.append(model)
                 continue
+
+            ran.append(model)
 
             if args.output == "json":
                 print(json.dumps(run_data, indent=2))
@@ -90,8 +99,19 @@ def cmd_run(args):
     finally:
         teardown_server(process, config)
 
+    # Reported separately: "did not run" and "ran but scored low" are
+    # different findings, and naming a threshold for a run that produced no
+    # measurement sends whoever triages it chasing an accuracy that does not
+    # exist.
+    if errored:
+        print(
+            f"\nERROR: {len(errored)} of {len(models)} model(s) did not run: "
+            f"{', '.join(errored)}",
+            file=sys.stderr,
+        )
     if failed:
         print(f"\nCI FAILED: one or more models below threshold {threshold:.1%}", file=sys.stderr)
+    if failed or errored or not ran:
         sys.exit(1)
 
 
