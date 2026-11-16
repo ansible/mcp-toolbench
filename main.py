@@ -69,10 +69,9 @@ def cmd_run(args):
                         judge_model=args.judge_model,
                     )
             except Exception as e:
-                # A model that never produced a result is a failure, not a
-                # pass. Record it so the exit code reflects it: `continue`
-                # skips the threshold check below, so without this a crashed
-                # run exits 0 with empty stdout.
+                # Record the skip: `continue` jumps past the threshold check
+                # below, so without this a run where nothing executed exits 0
+                # with empty stdout.
                 print(f"Skipping {model}: {e}", file=sys.stderr)
                 errored.append(model)
                 continue
@@ -111,7 +110,10 @@ def cmd_run(args):
         )
     if failed:
         print(f"\nCI FAILED: one or more models below threshold {threshold:.1%}", file=sys.stderr)
-    if failed or errored or not ran:
+    # `not ran` is the case this closes: nothing produced a result, so there is
+    # nothing to have passed. A partial skip still exits 0 outside --ci, as
+    # before, so a multi-model eval missing one provider's key is unchanged.
+    if failed or not ran or (args.ci and errored):
         sys.exit(1)
 
 
