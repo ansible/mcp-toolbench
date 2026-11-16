@@ -132,9 +132,12 @@ def resolve_citation(skill_uri: str, raw: str, served: set[str] = frozenset()) -
 async def gather(transport) -> Snapshot:
     """Connect once and collect instructions, skills, tools and read outcomes."""
     async with mcp_session(transport) as client:
-        init = client.initialize_result
-        instructions = init.instructions or ""
-        extensions = getattr(init.capabilities, "extensions", None) or {}
+        # Read the negotiated metadata off the client, not off
+        # `initialize_result`: a server that speaks the modern `server/discover`
+        # era negotiates a DiscoverResult instead, leaving `initialize_result`
+        # None. These properties are populated in either era.
+        instructions = client.instructions or ""
+        extensions = getattr(client.server_capabilities, "extensions", None) or {}
 
         tool_names = {tool.name for tool in await client.list_tools()}
         resource_uris = {str(r.uri) for r in await client.list_resources()}

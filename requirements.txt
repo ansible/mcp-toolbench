@@ -1,4 +1,7 @@
-fastmcp>=3.4.2
+# 4.0 for the era-neutral Client.instructions / Client.server_capabilities
+# that harness/skills_client.py needs; 3.x exposes only initialize_result,
+# which is None on a modern server/discover connection.
+fastmcp>=4.0.0
 ollama>=0.6.2
 deepeval>=2.0.0
 anthropic[vertex]>=0.30.0

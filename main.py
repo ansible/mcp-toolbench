@@ -23,6 +23,8 @@ def cmd_run(args):
 
     process = setup_server(config)
     failed = False
+    ran = []
+    errored = []
 
     try:
         for model in models:
@@ -67,8 +69,14 @@ def cmd_run(args):
                         judge_model=args.judge_model,
                     )
             except Exception as e:
+                # Record the skip: `continue` jumps past the threshold check
+                # below, so without this a run where nothing executed exits 0
+                # with empty stdout.
                 print(f"Skipping {model}: {e}", file=sys.stderr)
+                errored.append(model)
                 continue
+
+            ran.append(model)
 
             if args.output == "json":
                 print(json.dumps(run_data, indent=2))
@@ -90,8 +98,22 @@ def cmd_run(args):
     finally:
         teardown_server(process, config)
 
+    # Reported separately: "did not run" and "ran but scored low" are
+    # different findings, and naming a threshold for a run that produced no
+    # measurement sends whoever triages it chasing an accuracy that does not
+    # exist.
+    if errored:
+        print(
+            f"\nERROR: {len(errored)} of {len(models)} model(s) did not run: "
+            f"{', '.join(errored)}",
+            file=sys.stderr,
+        )
     if failed:
         print(f"\nCI FAILED: one or more models below threshold {threshold:.1%}", file=sys.stderr)
+    # `not ran` is the case this closes: nothing produced a result, so there is
+    # nothing to have passed. A partial skip still exits 0 outside --ci, as
+    # before, so a multi-model eval missing one provider's key is unchanged.
+    if failed or not ran or (args.ci and errored):
         sys.exit(1)
 
 
